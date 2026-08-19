@@ -1,7 +1,7 @@
 # Object = Data + Behaviour
 
 
-class position:
+class Position:
 
     def __init__(self,symbol,quantity):
         self.symbol = symbol
@@ -21,13 +21,13 @@ class position:
 
 
 
-apple = position("AAPL",100)
+apple = Position("AAPL",100)
 print(apple.symbol)
 print(apple.quantity)
 apple_value = apple.market_value(200)
 print(apple_value)
 
-microsoft = position("MSFT",50)
+microsoft = Position("MSFT",50)
 print(microsoft.symbol)
 print(microsoft.quantity)
 microsoft_value = microsoft.market_value(300)
@@ -36,7 +36,7 @@ print(microsoft_value)
 apple.update_quantity(150)
 print(apple.quantity)
 
-Tesla = position("TSLA",30)
+Tesla = Position("TSLA",30)
 print(Tesla.quantity)
 print(Tesla.symbol)
 tesla_value = Tesla.market_value(250)
@@ -44,7 +44,7 @@ print(tesla_value)
 
 print(apple.is_long())
 
-short_position = position("TSLA", -50)
+short_position = Position("TSLA", -50)
 print(short_position.is_long())
 
 
