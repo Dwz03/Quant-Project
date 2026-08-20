@@ -34,6 +34,10 @@ class MomentumStrategy(Strategy):
         self.lookback = lookback
 
     def generate_signal(self, prices):
+
+        if len(prices) < 2:
+            raise ValueError("Momentum Strategy require at least 2 prices")
+
         if prices[-1] > prices[-2]:
             return "Buy"
         elif prices[-1] == prices[-2]:
@@ -48,7 +52,11 @@ class MeanReversionStrategy(Strategy):
         self.window = window
 
     def generate_signal(self, prices):
-        historical_prices = prices[:-1]
+
+        if len(prices) < self.window + 1:
+            raise ValueError(f"we need at least {self.window} prices to calculate the mean revision strategy")
+        
+        historical_prices = prices[-self.window - 1: -1]
         average_price = sum(historical_prices) / len(historical_prices)
 
         if prices[-1] < average_price:
@@ -74,12 +82,9 @@ if __name__ == "__main__":
         print(strategy.generate_signal([100, 101, 102]))
 
     momentum = MomentumStrategy(5)
-    mean_reversion = MeanReversionStrategy(10)
+    mean_reversion = MeanReversionStrategy(3)
 
-    prices = [100, 102, 101, 105]
-
-    print(momentum.generate_signal(prices))
-    print(mean_reversion.generate_signal(prices))
+    prices = [100, 101]
 
     strategies = [
         momentum,

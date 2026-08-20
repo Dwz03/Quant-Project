@@ -16,7 +16,15 @@ def main():
 
     bot = TradingBot(strategy, portfolio)
 
-    prices = [100, 102, 104]
+    prices = {
+        "AAPL": 200
+        # 故意没有 MSFT
+    }
+
+    try:
+        print(bot.portfolio.total_market_value(prices))
+    except ValueError as e:
+        print(f"Trading system error, {e}")
 
     signal = bot.get_signal(prices)
 

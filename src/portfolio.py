@@ -95,10 +95,18 @@ if __name__ == "__main__":
     print(portfolio.positions)
 
     prices = {
-        "AAPL": 230
+        "AAPL": 230,
+        "MSFT": 300
     }
 
-    print(portfolio.total_market_value(prices))
+    try:
+        total = portfolio.total_market_value(prices)
+        print(total)
+    except ValueError as e:
+        print(f"portfolio valuation failed: {e}")
+
+    print(f"program still running")
+
 
 
 
