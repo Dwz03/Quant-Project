@@ -1,9 +1,17 @@
 # Object = Data + Behaviour
 
-
 class Position:
 
     def __init__(self,symbol,quantity):
+
+        if symbol == "":
+            raise ValueError("symbol cannot be empty")
+
+        if isinstance(quantity, (int, float)):
+            pass
+        else:
+            raise TypeError("quantity must be a number")
+        
         self.symbol = symbol
         self.quantity = quantity
 
@@ -11,6 +19,10 @@ class Position:
         return self.quantity * price
 
     def update_quantity(self,new_quantity):
+
+        if not isinstance(new_quantity, (int, float)):
+            raise TypeError("quantity must be a number")
+
         self.quantity = new_quantity
 
     def is_long(self):
@@ -45,3 +57,7 @@ if __name__ == "__main__":
 
     short_position = Position("TSLA", -50)
     print(short_position.is_long())
+
+    a = Position("AAPL", 100)
+    b = Position("", 100)
+    c = Position("MSFT", "50")

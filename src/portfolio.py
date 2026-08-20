@@ -25,6 +25,10 @@ class Portfolio:
     def total_market_value(self, prices):
         total = 0
         for symbol, position in self.positions.items():
+
+            if symbol not in prices:
+                raise ValueError(f"Missing price for {symbol}")
+            
             price = prices[symbol]
             value = position.market_value(price)
             total = total + value
@@ -91,8 +95,7 @@ if __name__ == "__main__":
     print(portfolio.positions)
 
     prices = {
-        "AAPL": 230,
-        "MSFT": 500
+        "AAPL": 230
     }
 
     print(portfolio.total_market_value(prices))
