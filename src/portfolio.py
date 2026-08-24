@@ -10,13 +10,17 @@ class Portfolio:
         self.cash = cash
         self.positions = {}
 
-    def buy(self, symbol, quantity, price):
+    def _validate_trade(self, quantity, price):
 
         if quantity <= 0:
             raise ValueError(f"the number of shares must be positive!")
 
         if price <= 0:
             raise ValueError(f"the price of shares must be positive!") # This could be change later
+            
+    def buy(self, symbol, quantity, price):
+
+        self._validate_trade(quantity, price)
 
         position = self.positions.get(symbol)
 
@@ -41,13 +45,9 @@ class Portfolio:
             raise ValueError(f"Cannot sell {symbol} : position does not exist!")
 
         if quantity > position.quantity:
-            raise ValueError(f"Cannot sell {symbol} : number of sold position is larger than we already have")
+            raise ValueError(f"Cannot sell {symbol} : we do not have enough quantity!")
 
-        if quantity <= 0:
-            raise ValueError(f"the number of shares must be positive!")
-
-        if price <= 0:
-            raise ValueError(f"the price of shares must be positive!") # This could be change later
+        self._validate_trade(quantity,price)
 
         gain = quantity * price
         self.cash = self.cash + gain
@@ -56,17 +56,15 @@ class Portfolio:
         position.update_quantity(new_quantity)
 
         if position.quantity == 0:
-            self.remove_position(symbol)
-        else:
-            pass
+            self._remove_position(symbol)
 
-    def add_position(self, position):
+    def _add_position(self, position):
         self.positions[position.symbol] = position #我们用symbol当作key，然后进来的parameter position其实是一个object
 
     def get_position(self, symbol):
         return self.positions.get(symbol)
 
-    def remove_position(self, symbol):
+    def _remove_position(self, symbol):
         self.positions.pop(symbol, None)
 
     def show_position(self):
