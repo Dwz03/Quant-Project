@@ -1,36 +1,45 @@
 # import
+import matplotlib.pyplot as plt
 from src.position import Position
 from src.portfolio import Portfolio
 from src.strategy import MomentumStrategy
 from src.tradingbot import TradingBot
+from src.data_loader import (load_market_data, add_returns, get_data_path,
+                             clean_market_data, save_market_data, load_local_market_data)
+from src.backtest import (add_strategy_returns, add_equity_curve, add_buy_hold_equity)
 
 # Main script
 def main():
-    
-    aapl = Position("AAPL", 100)
 
-    portfolio = Portfolio(100000)
-    portfolio.add_position(aapl)
+    data = load_market_data(
+    "AAPL",
+    "2020-01-01",
+    "2025-01-01")
 
-    strategy = MomentumStrategy(5)
+    data = add_returns(data)
 
-    bot = TradingBot(strategy, portfolio)
+    data["Signal"] = 0
 
-    prices = {
-        "AAPL": 200
-        # 故意没有 MSFT
-    }
+    data.loc[data["Return"] > 0, "Signal"] = 1
+    data.loc[data["Return"] < 0, "Signal"] = -1
 
-    try:
-        print(bot.portfolio.total_market_value(prices))
-    except ValueError as e:
-        print(f"Trading system error, {e}")
+    data = add_strategy_returns(data)
 
-    signal = bot.get_signal(prices)
+    data = add_equity_curve(data)
 
-    print(signal)
+    data = add_buy_hold_equity(data)
 
-    bot.show_portfolio()
+    print(data.tail())
+
+    plt.plot(data.index, data["equity"], label="Strategy")
+    plt.plot(data.index, data["Buy_Hold_Equity"], label="Buy & Hold")
+
+    plt.legend()
+    plt.xlabel("Date")
+    plt.ylabel("Equity")
+    plt.title("Strategy vs Buy & Hold")
+
+    plt.show()
 
 # Test
 if __name__ == "__main__":

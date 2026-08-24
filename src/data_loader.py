@@ -73,6 +73,11 @@ def load_market_data(symbol, start, end):
 
     return clean_data
 
+def add_returns(data):
+
+    data["Return"] = data["Close"] / data["Close"].shift(1) - 1
+
+    return data
 
 if __name__ == "__main__":
 
