@@ -1,28 +1,28 @@
-def add_signal(data):
 
-    data["Signal"] = 0
+class Backtester:
 
-    data.loc[data["Return"] > 0, "Signal"] = 1
-    data.loc[data["Return"] < 0, "Signal"] = -1
+    def __init__(self, data):
+        self.data = data.copy()
 
-    return data
+    def add_strategy_returns(self):
 
-def add_strategy_returns(data):
+        self.data["Position"] = self.data["Signal"].shift(1)
 
-    data["Position"] = data["Signal"].shift(1)
+        self.data["Strategy_Return"] = self.data["Position"] * self.data["Return"]
 
-    data["Strategy_Return"] = data["Position"] * data["Return"]
+    def add_buy_hold_equity(self):
 
-    return data
+        self.data["Buy_Hold_Equity"] = (1 + self.data["Return"]).cumprod()
 
-def add_equity_curve(data):
+    def add_equity_curve(self):
 
-    data["equity"] = (1 + data["Strategy_Return"]).cumprod()
+        self.data["equity"] = (1 + self.data["Strategy_Return"]).cumprod()
 
-    return data
+    def run(self):
 
-def add_buy_hold_equity(data):
+        self.add_strategy_returns()
+        self.add_equity_curve()
+        self.add_buy_hold_equity()
 
-    data["Buy_Hold_Equity"] = (1 + data["Return"]).cumprod()
+        return self.data
 
-    return data
