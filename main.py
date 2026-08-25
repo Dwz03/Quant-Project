@@ -7,6 +7,7 @@ from src.tradingbot import TradingBot
 from src.data_loader import (load_market_data, add_returns, get_data_path,
                              clean_market_data, save_market_data, load_local_market_data)
 from src.backtest import Backtester
+from src.metrics import performance_summary
 
 # Main script
 def main():
@@ -29,14 +30,14 @@ def main():
     print(result[["Close", "Signal", "Position", "Return",
                   "Strategy_Return", "equity", "Buy_Hold_Equity"]].tail())
 
-    change_dates = result.index[result["Signal"] != result["Signal"].shift(1)]
+    summary = performance_summary(result["Strategy_Return"])
 
-    print(change_dates[:5])
+    print(f"Total Return: {summary['Total Return']:.2%}")
+    print(f"Annualized Volatility: {summary['Annualized Volatility']:.2%}")
+    print(f"Sharpe Ratio: {summary['Sharpe Ratio']:.2f}")
+    print(f"Max Drawdown: {summary['Max Drawdown']:.2%}")
 
-    print(
-        result.loc[ "2020-03-10":"2020-03-18", 
-                   ["Close", "Short_MA", "Long_MA", "Signal", "Position", "Return","Strategy_Return"]]
-        )
+
 # Test
 if __name__ == "__main__":
     main()
