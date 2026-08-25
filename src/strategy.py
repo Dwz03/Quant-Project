@@ -64,6 +64,26 @@ class MeanReversionStrategy(Strategy):
         else:
             return "Sell"
 
+class MovingAverageStrategy(Strategy):
+
+    def __init__(self, short_window, long_window):
+
+        super().__init__("MovingAverage")
+        self.short_window = short_window
+        self.long_window = long_window
+
+    def generate_signal(self, data):
+
+        data["Short_MA"] = data["Close"].rolling(window = self.short_window).mean()
+        data["Long_MA"] = data["Close"].rolling(window = self.long_window).mean()
+
+        data["Signal"] = 0
+
+        data.loc[data["Short_MA"] > data["Long_MA"], "Signal"] = 1
+        data.loc[data["Short_MA"] < data["Long_MA"], "Signal"] = -1
+
+        return data
+
 # Test
 if __name__ == "__main__":
 

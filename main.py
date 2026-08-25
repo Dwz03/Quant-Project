@@ -2,7 +2,7 @@
 import matplotlib.pyplot as plt
 from src.position import Position
 from src.portfolio import Portfolio
-from src.strategy import MomentumStrategy
+from src.strategy import MovingAverageStrategy
 from src.tradingbot import TradingBot
 from src.data_loader import (load_market_data, add_returns, get_data_path,
                              clean_market_data, save_market_data, load_local_market_data)
@@ -16,30 +16,13 @@ def main():
     "2020-01-01",
     "2025-01-01")
 
-    data = add_returns(data)
+    strategy = MovingAverageStrategy(short_window=20,long_window=50)
 
-    data["Signal"] = 0
+    data = strategy.generate_signal(data)
 
-    data.loc[data["Return"] > 0, "Signal"] = 1
-    data.loc[data["Return"] < 0, "Signal"] = -1
+    print(data[["Close", "Short_MA", "Long_MA", "Signal"]].tail(20))
 
-    data = add_strategy_returns(data)
-
-    data = add_equity_curve(data)
-
-    data = add_buy_hold_equity(data)
-
-    print(data.tail())
-
-    plt.plot(data.index, data["equity"], label="Strategy")
-    plt.plot(data.index, data["Buy_Hold_Equity"], label="Buy & Hold")
-
-    plt.legend()
-    plt.xlabel("Date")
-    plt.ylabel("Equity")
-    plt.title("Strategy vs Buy & Hold")
-
-    plt.show()
+    print(data["Signal"].value_counts())
 
 # Test
 if __name__ == "__main__":
