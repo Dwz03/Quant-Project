@@ -9,6 +9,8 @@ from src.data_loader import (load_market_data, add_returns, get_data_path,
 from src.backtest import Backtester
 from src.metrics import performance_summary
 
+import pandas as pd
+
 # Main script
 def main():
 
@@ -23,20 +25,25 @@ def main():
 
     data = strategy.generate_signal(data)
 
-    backtester = Backtester(data)
+    results = []
 
-    result = backtester.run()
+    for cost, slip in zip([0, 0.0005, 0.001], [0, 0.0002, 0.0005]):
 
-    print(result[["Close", "Signal", "Position", "Return",
-                  "Strategy_Return", "equity", "Buy_Hold_Equity"]].tail())
+        backtester = Backtester(data)
 
-    summary = performance_summary(result["Strategy_Return"])
+        result = backtester.run(cost_rate=cost, slippage_rate=slip)
+        summary_net = performance_summary(result["Net_Strategy_Return"])
 
-    print(f"Total Return: {summary['Total Return']:.2%}")
-    print(f"Annualized Volatility: {summary['Annualized Volatility']:.2%}")
-    print(f"Sharpe Ratio: {summary['Sharpe Ratio']:.2f}")
-    print(f"Max Drawdown: {summary['Max Drawdown']:.2%}")
+        results.append({"Cost Rate": cost, "Slippage Rate": slip, **summary_net})
 
+    sensitivity_df = pd.DataFrame(results)
+
+    sensitivity_df["Cost (bps)"] = sensitivity_df["Cost Rate"] * 10000
+    sensitivity_df["Slippage (bps)"] = sensitivity_df["Slippage Rate"] * 10000
+
+    sensitivity_df = sensitivity_df.drop(columns=["Cost Rate", "Slippage Rate"])
+
+    print(sensitivity_df)
 
 # Test
 if __name__ == "__main__":
