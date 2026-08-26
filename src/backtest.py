@@ -38,6 +38,17 @@ class Backtester:
 
         self.data["Slippage"] = self.data["Turnover"] * slippage_rate
 
+    def add_net_buy_hold_returns(self, cost_rate, slippage_rate):
+
+        self.data["Net_Buy_Hold_Return"] = self.data["Return"].copy()
+
+        first_idx = self.data.index[0]
+        self.data.loc[first_idx, "Net_Buy_Hold_Return"] =  -(cost_rate + slippage_rate)
+
+    def add_net_buy_hold_equity(self):
+
+        self.data["Net_Buy_Hold_Equity"] = (1 + self.data["Net_Buy_Hold_Return"]).cumprod()
+
     def run(self, cost_rate, slippage_rate):
        
         self.add_strategy_returns()
@@ -49,6 +60,9 @@ class Backtester:
         self.add_slippage(slippage_rate)
         self.add_net_strategy_returns()
         self.add_net_equity_curve()
+
+        self.add_net_buy_hold_returns(cost_rate, slippage_rate)
+        self.add_net_buy_hold_equity()
 
         return self.data
 

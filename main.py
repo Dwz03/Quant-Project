@@ -25,25 +25,28 @@ def main():
 
     data = strategy.generate_signal(data)
 
-    results = []
+    backtester = Backtester(data)
 
-    for cost, slip in zip([0, 0.0005, 0.001], [0, 0.0002, 0.0005]):
+    result = backtester.run(cost_rate = 0.0005, slippage_rate = 0.0001)
 
-        backtester = Backtester(data)
+    summary_strategy = performance_summary(result["Net_Strategy_Return"])
+    summary_buy_hold = performance_summary(result["Net_Buy_Hold_Return"])
 
-        result = backtester.run(cost_rate=cost, slippage_rate=slip)
-        summary_net = performance_summary(result["Net_Strategy_Return"])
+    comparison = pd.DataFrame({"Strategy" : summary_strategy, "Buy & Hold" : summary_buy_hold})
 
-        results.append({"Cost Rate": cost, "Slippage Rate": slip, **summary_net})
+    print(comparison)
 
-    sensitivity_df = pd.DataFrame(results)
+    plt.figure(figsize = (10, 6))
 
-    sensitivity_df["Cost (bps)"] = sensitivity_df["Cost Rate"] * 10000
-    sensitivity_df["Slippage (bps)"] = sensitivity_df["Slippage Rate"] * 10000
+    plt.plot(result.index, result["Net_Equity"], label = "Strategy")
+    plt.plot(result.index, result["Net_Buy_Hold_Equity"], label = "Buy & Hold")
 
-    sensitivity_df = sensitivity_df.drop(columns=["Cost Rate", "Slippage Rate"])
+    plt.xlabel("Date")
+    plt.ylabel("Equity")
+    plt.title("Strategy vs Buy & Hold")
+    plt.legend()
 
-    print(sensitivity_df)
+    plt.show()
 
 # Test
 if __name__ == "__main__":
