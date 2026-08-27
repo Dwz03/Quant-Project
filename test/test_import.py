@@ -1,5 +1,4 @@
-# import
-import main
+import main as main
 
-# Main script
 print(main.__name__)
+
