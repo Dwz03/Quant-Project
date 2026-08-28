@@ -39,7 +39,7 @@ def sharpe_ratio(returns):
     std_returns = returns.std()
 
     if np.isclose(std_returns, 0):
-        return np.nan
+        return 0
 
     return mean_return * np.sqrt(252) / std_returns
 
