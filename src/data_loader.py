@@ -60,8 +60,6 @@ def load_market_data(symbol, start, end):
 
         return data
 
-    print("Downloading data from Yahoo Finance...")
-
     data = yf.download(symbol, start = start, end = end, interval = "1d", auto_adjust = True)
 
     if data.empty:
