@@ -8,6 +8,9 @@ from src.data_loader import (load_market_data, add_returns, get_data_path,
                              clean_market_data, save_market_data, load_local_market_data)
 from src.backtest import Backtester
 from src.metrics import performance_summary
+from src.fill import Fill
+from src.order import Order
+from src.execution import ExecutionHandler
 
 import pandas as pd
 
@@ -47,6 +50,35 @@ def main():
     plt.legend()
 
     plt.show()
+
+    portfolio = Portfolio(10000)
+
+    order = Order("AAPL", 10, "BUY")
+
+    execution = ExecutionHandler(
+        slippage_rate=0.001,
+        commission_rate=0.0005
+    )
+
+    fill = execution.execute_order(order, 100)
+
+    portfolio.process_fill(fill)
+
+    print(order.status)
+    print(fill.price)
+    print(portfolio.cash)
+    print(portfolio.positions["AAPL"].quantity)
+
+    sell_order = Order("AAPL", 4, "SELL")
+
+    sell_fill = execution.execute_order(sell_order, 110)
+
+    portfolio.process_fill(sell_fill)
+
+    print(sell_order.status)
+    print(sell_fill.price)
+    print(portfolio.cash)
+    print(portfolio.positions["AAPL"].quantity)
 
 # Test
 if __name__ == "__main__":

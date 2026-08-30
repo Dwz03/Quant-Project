@@ -2,6 +2,7 @@
 
 # Import
 from .position import Position
+from .fill import Fill
 
 # Main script
 class Portfolio:
@@ -96,157 +97,53 @@ class Portfolio:
     def return_pct(self, prices):
 
         return self.pnl(prices) / self.initial_cash
+
+    def process_fill(self, fill):
+
+        if fill.side == "BUY":
+
+            cost = fill.market_value() * (1 + fill.commission_rate)
+
+            if cost > self.cash:
+
+                raise ValueError("we do not have enough cash")
+
+            self.cash = self.cash - cost
+
+            position = self.positions.get(fill.symbol)
+
+            if position is None:
+                self.positions[fill.symbol] = Position(fill.symbol, fill.quantity)
+
+            else:
+                new_quantity = position.quantity + fill.quantity
+                position.update_quantity(new_quantity)
+
+        else:
+
+            position = self.positions.get(fill.symbol)
+
+            if position is None:
+                raise ValueError("we do not have this asset")
+
+            if position.quantity < fill.quantity:
+                raise ValueError("we do not have enough quantity")
+
+            proceed = fill.market_value() * (1 - fill.commission_rate)
+
+            self.cash = self.cash + proceed 
+
+            new_quantity = position.quantity - fill.quantity
+
+            position.update_quantity(new_quantity)
+
+            if position.quantity == 0:
+                self._remove_position(fill.symbol)
+
+
+
     
 
-# Test
-if __name__ == "__main__":
-
-    positions = {}
-    
-    positions["AAPL"] = 100
-    positions["MSFT"] = 50
-            
-    print(positions)
-    print(positions["AAPL"])
-            
-    print(positions.get("AAPL"))
-    print(positions.get("NVDA"))
-            
-    positions['AAPL'] = 150
-    print(positions)
-            
-    print("AAPL" in positions)
-    print("NVDA" in positions)
-
-    portfolio = Portfolio(100000)
-    print(portfolio.cash)
-    print(portfolio.positions)
-
-    aapl = Position("AAPL", 100)
-    msft = Position("MSFT", 50)
-
-    portfolio.add_position(aapl)
-    portfolio.add_position(msft)
-
-    print(portfolio.positions["AAPL"].quantity)
-
-    aapl_position = portfolio.get_position("AAPL")
-    msft_position = portfolio.get_position("MSFT")
-
-    print(aapl_position.quantity)
-    print(msft_position.quantity)
-
-    portfolio.remove_position("MSFT")
-    print(portfolio.positions)
-
-    aapl.update_quantity(200)
-
-    print(aapl.quantity)
-    print(portfolio.get_position("AAPL").quantity)
-
-    print(portfolio.get_position("NVDA"))
-    print(portfolio.get_position("AAPL"))
-
-    portfolio.remove_position("NVDA")
-    print("Program still running")
-
-    portfolio.add_position(msft)
-    portfolio.show_position()
-
-    print(portfolio.positions)
-
-    prices = {
-        "AAPL": 230,
-        "MSFT": 300
-    }
-
-    try:
-        total = portfolio.total_market_value(prices)
-        print(total)
-    except ValueError as e:
-        print(f"portfolio valuation failed: {e}")
-
-    print(f"program still running")
-
-    portfolio = Portfolio(100000)
-
-    portfolio.buy("AAPL", 100, 200)
-
-    print(portfolio.cash)
-    print(portfolio.get_position("AAPL").quantity)
-
-    portfolio.buy("AAPL", 50, 210)
-
-    print(portfolio.cash)
-    print(portfolio.get_position("AAPL").quantity)
-
-    portfolio = Portfolio(100000)
-
-    portfolio.buy("AAPL", 100, 200)
-
-    portfolio.sell("AAPL", 20, 220)
-
-    print(portfolio.cash)
-    print(portfolio.get_position("AAPL").quantity)
-
-    portfolio.sell("AAPL", 80, 230)
-
-    print(portfolio.cash)
-    print(portfolio.get_position("AAPL"))
-
-    portfolio = Portfolio(100000)
-
-    portfolio.buy("AAPL", 100, 200)
-    portfolio.buy("MSFT", 50, 400)
-
-    prices = {
-        "AAPL": 220,
-        "MSFT": 410
-    }
-
-    print(portfolio.cash)
-    print(portfolio.total_market_value(prices))
-    print(portfolio.total_value(prices))
-
-    portfolio = Portfolio(100000)
-
-    portfolio.buy("AAPL", 100, 200)
-    portfolio.buy("MSFT", 50, 400)
-
-    prices = {
-        "AAPL": 220,
-        "MSFT": 410
-    }
-
-    print("Cash:", portfolio.cash)
-    print("Portfolio value:", portfolio.total_value(prices))
-    print("PnL:", portfolio.pnl(prices))
-    print("Return:", portfolio.return_pct(prices))
-
-    portfolio = Portfolio(100000)
-
-    portfolio.buy("AAPL", 100, 200)
-    portfolio.buy("MSFT", 50, 400)
-
-    prices_1 = {
-        "AAPL": 220,
-        "MSFT": 410
-    }
-
-    print(portfolio.total_value(prices_1))
-
-    portfolio.sell("AAPL", 20, 220)
-
-    print(portfolio.total_value(prices_1))
-
-    prices_2 = {
-        "AAPL": 230,
-        "MSFT": 390
-    }
-
-    print(portfolio.total_value(prices_2))
-    print(portfolio.pnl(prices_2))
-    print(portfolio.return_pct(prices_2))
 
 
 
