@@ -167,6 +167,19 @@ class Portfolio:
 
         return total
 
+    def gross_exposure(self, prices):
+
+        total = 0
+        for symbol, position in self.positions.items():
+
+            if symbol not in prices:
+                raise ValueError(f"missing price for {symbol}")
+
+            price = prices[symbol]
+            value = position.quantity  * price
+            total = total + abs(value)
+        return total
+
 
 if __name__ == "__main__":
 

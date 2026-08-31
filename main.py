@@ -11,74 +11,47 @@ from src.metrics import performance_summary
 from src.fill import Fill
 from src.order import Order
 from src.execution import ExecutionHandler
+from src.risk_manager import RiskManager
 
 import pandas as pd
 
 # Main script
 def main():
 
-    data = load_market_data(
-    "SPY",
-    "2020-01-01",
-    "2025-01-01")
-
-    strategy = MovingAverageStrategy(short_window=20,long_window=50)
-
-    data = add_returns(data)
-
-    data = strategy.generate_signal(data)
-
-    backtester = Backtester(data)
-
-    result = backtester.run(cost_rate = 0.0005, slippage_rate = 0.0001)
-
-    summary_strategy = performance_summary(result["Net_Strategy_Return"])
-    summary_buy_hold = performance_summary(result["Net_Buy_Hold_Return"])
-
-    comparison = pd.DataFrame({"Strategy" : summary_strategy, "Buy & Hold" : summary_buy_hold})
-
-    print(comparison)
-
-    plt.figure(figsize = (10, 6))
-
-    plt.plot(result.index, result["Net_Equity"], label = "Strategy")
-    plt.plot(result.index, result["Net_Buy_Hold_Equity"], label = "Buy & Hold")
-
-    plt.xlabel("Date")
-    plt.ylabel("Equity")
-    plt.title("Strategy vs Buy & Hold")
-    plt.legend()
-
-    plt.show()
-
     portfolio = Portfolio(10000)
+
+    prices = {"AAPL": 100}
 
     order = Order("AAPL", 10, "BUY")
 
-    execution = ExecutionHandler(
-        slippage_rate=0.001,
-        commission_rate=0.0005
-    )
+    risk_manager = RiskManager(0.2, 1.0)
 
-    fill = execution.execute_order(order, 100)
+    execution = ExecutionHandler(0.001, 0.005)
 
-    portfolio.process_fill(fill)
+    if risk_manager.check_order(order, portfolio, prices):
 
-    print(order.status)
-    print(fill.price)
-    print(portfolio.cash)
-    print(portfolio.positions["AAPL"].quantity)
+        fill = execution.execute_order(order, prices["AAPL"])
+        portfolio.process_fill(fill)
 
-    sell_order = Order("AAPL", 4, "SELL")
+    else:
+        print("Order rejected by risk manager")
 
-    sell_fill = execution.execute_order(sell_order, 110)
+    print(f"AAPL quantity is : {portfolio.get_position('AAPL').quantity}")
+    print(f"portfolio remaining cash is : {portfolio.cash}")
 
-    portfolio.process_fill(sell_fill)
+    order_new = Order("AAPL", 500, "BUY")
 
-    print(sell_order.status)
-    print(sell_fill.price)
-    print(portfolio.cash)
-    print(portfolio.positions["AAPL"].quantity)
+    if risk_manager.check_order(order_new, portfolio, prices):
+    
+        fill = execution.execute_order(order_new, prices["AAPL"])
+        portfolio.process_fill(fill)
+    
+    else:
+        print("Order rejected by risk manager")
+    
+    print(f"AAPL quantity is : {portfolio.get_position("AAPL").quantity}")
+    print(f"portfolio remaining cash is : {portfolio.cash}")
+
 
 # Test
 if __name__ == "__main__":

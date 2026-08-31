@@ -21,13 +21,7 @@ class ExecutionHandler:
         else:
             fill_price = market_price * (1 - self.slippage_rate)
 
-        fill = Fill(
-            order.symbol,
-            remaining,
-            order.side,
-            fill_price,
-            self.commission_rate
-        )
+        fill = Fill(order.symbol, remaining, order.side, fill_price, self.commission_rate)
 
         order.add_fill(fill.quantity)
 
