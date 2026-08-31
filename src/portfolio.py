@@ -10,6 +10,8 @@ class Portfolio:
         self.initial_cash = cash
         self.cash = cash
         self.positions = {}
+        self.realised_pnl = 0
+        self.total_commission = 0
 
     def _validate_trade(self, quantity, price):
 
@@ -33,10 +35,13 @@ class Portfolio:
         self.cash = self.cash - cost
 
         if position is None:
-            self.positions[symbol] = Position(symbol, quantity)
+            self.positions[symbol] = Position(symbol, quantity, price)
         else:
             new_quantity = position.quantity + quantity
+            total_cost = position.quantity * position.average_cost + quantity * price
+            new_average_cost = total_cost / new_quantity
             position.update_quantity(new_quantity)
+            position.average_cost = new_average_cost
 
     def sell(self, symbol, quantity, price):
 
@@ -112,12 +117,15 @@ class Portfolio:
 
             position = self.positions.get(fill.symbol)
 
+            commission = (fill.market_value() * fill.commission_rate)
+
+            self.total_commission += commission
+
             if position is None:
-                self.positions[fill.symbol] = Position(fill.symbol, fill.quantity)
+                self.positions[fill.symbol] = Position(fill.symbol, fill.quantity, fill.price)
 
             else:
-                new_quantity = position.quantity + fill.quantity
-                position.update_quantity(new_quantity)
+                position.add_quantity(fill.quantity, fill.price)
 
         else:
 
@@ -128,19 +136,87 @@ class Portfolio:
 
             if position.quantity < fill.quantity:
                 raise ValueError("we do not have enough quantity")
+            
+            commission = (fill.market_value() * fill.commission_rate)
+
+            self.total_commission += commission
 
             proceed = fill.market_value() * (1 - fill.commission_rate)
 
             self.cash = self.cash + proceed 
 
-            new_quantity = position.quantity - fill.quantity
+            realised = position.reduce_quantity(fill.quantity, fill.price)
 
-            position.update_quantity(new_quantity)
+            self.realised_pnl += realised
 
             if position.quantity == 0:
                 self._remove_position(fill.symbol)
 
+    def total_unrealised_pnl(self, prices):
 
+        total = 0
+
+        for symbol, position in self.positions.items():
+
+            if symbol not in prices:
+                raise ValueError(f"Missing price for {symbol}")
+                        
+            price = prices[symbol]
+            value = position.unrealised_pnl(price)
+            total = total + value
+
+        return total
+
+
+if __name__ == "__main__":
+
+    portfolio = Portfolio(10000)
+
+    buy_fill = Fill(
+        "AAPL",
+        10,
+        "BUY",
+        100,
+        0.001
+    )
+
+    portfolio.process_fill(buy_fill)
+
+    prices = {
+        "AAPL": 120
+    }
+
+    print("Cash:", portfolio.cash)
+    print("Realised PnL:", portfolio.realised_pnl)
+    print("Unrealised PnL:", portfolio.total_unrealised_pnl(prices))
+    print("Commission:", portfolio.total_commission)
+    print("Portfolio PnL:", portfolio.pnl(prices))
+
+    accounting_pnl = (
+        portfolio.realised_pnl
+        + portfolio.total_unrealised_pnl(prices)
+        - portfolio.total_commission
+    )
+
+    print(accounting_pnl)
+
+    sell_fill = Fill(
+        "AAPL",
+        4,
+        "SELL",
+        130,
+        0.001
+    )
+
+    portfolio.process_fill(sell_fill)
+
+    prices = {
+        "AAPL": 130
+    }
+
+    print(portfolio.pnl(prices))
+
+    print(portfolio.realised_pnl + portfolio.total_unrealised_pnl(prices) - portfolio.total_commission)
 
     
 

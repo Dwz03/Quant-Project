@@ -2,7 +2,7 @@
 
 class Position:
 
-    def __init__(self,symbol,quantity):
+    def __init__(self,symbol,quantity, average_cost):
 
         if symbol == "":
             raise ValueError("symbol cannot be empty")
@@ -11,9 +11,19 @@ class Position:
             pass
         else:
             raise TypeError("quantity must be a number")
+
+        if quantity <= 0:
+            raise ValueError("quantity must be positive")
+
+        if not isinstance(average_cost, (int, float)):
+            raise TypeError("average cost must be a number")
+
+        if average_cost <= 0:
+            raise ValueError("average cost must be positive")
         
         self.symbol = symbol
         self.quantity = quantity
+        self.average_cost = average_cost
 
     def market_value(self,price):
         return self.quantity * price
@@ -31,33 +41,57 @@ class Position:
         else:
             return False
 
-if __name__ == "__main__":
-    apple = Position("AAPL",100)
-    print(apple.symbol)
-    print(apple.quantity)
-    apple_value = apple.market_value(200)
-    print(apple_value)
+    def add_quantity(self, quantity, price):
 
-    microsoft = Position("MSFT",50)
-    print(microsoft.symbol)
-    print(microsoft.quantity)
-    microsoft_value = microsoft.market_value(300)
-    print(microsoft_value)
+        if not isinstance(quantity, (int, float)):
+            raise TypeError("quantity must be a number")
 
-    apple.update_quantity(150)
-    print(apple.quantity)
+        if quantity <= 0:
+            raise ValueError("quantity must be positive")
 
-    Tesla = Position("TSLA",30)
-    print(Tesla.quantity)
-    print(Tesla.symbol)
-    tesla_value = Tesla.market_value(250)
-    print(tesla_value)
+        if not isinstance(price, (int, float)):
+            raise TypeError("price must be a number")
 
-    print(apple.is_long())
+        if price <= 0:
+            raise ValueError("price must be positive")
 
-    short_position = Position("TSLA", -50)
-    print(short_position.is_long())
+        total_cost = self.average_cost * self.quantity + quantity * price
 
-    a = Position("AAPL", 100)
-    b = Position("", 100)
-    c = Position("MSFT", "50")
+        self.average_cost = total_cost / (self.quantity + quantity)
+
+        self.quantity = quantity + self.quantity
+
+    def reduce_quantity(self, quantity, price):
+
+        if not isinstance(quantity, (int, float)):
+            raise TypeError("quantity must be a number")
+
+        if not isinstance(price, (int, float)):
+            raise TypeError("price must be a number")
+
+        if price <= 0:
+            raise ValueError("price must be positive")
+
+        if quantity <= 0:
+            raise ValueError("quantity must be positive")
+
+        if quantity > self.quantity:
+            raise ValueError("we could not selling more than what we have")
+
+        realised_pnl = (price - self.average_cost) * quantity
+
+        new_quantity = self.quantity - quantity
+
+        self.update_quantity(new_quantity)
+
+        return realised_pnl
+
+    def unrealised_pnl(self, price):
+
+        total = (price - self.average_cost) * self.quantity
+
+        return total
+
+        
+
+
