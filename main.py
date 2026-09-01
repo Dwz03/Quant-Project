@@ -12,6 +12,7 @@ from src.fill import Fill
 from src.order import Order
 from src.execution import ExecutionHandler
 from src.risk_manager import RiskManager
+from src.rebalancer import Rebalancer
 
 import pandas as pd
 
@@ -26,29 +27,44 @@ def main():
         "GOOG": 150
     }
 
-    orders = [
-        Order("AAPL", 15, "BUY"),
-        Order("MSFT", 7, "BUY"),
-        Order("GOOG", 10, "BUY"),
-        Order("AAPL", 5, "SELL")
-    ]
+    target_weights = {
+        "AAPL": 0.4,
+        "MSFT": 0.59
+    }
 
-    risk_manager = RiskManager(0.2, 1.0)
+    rebalancer = Rebalancer()
+
+    orders = rebalancer.generate_orders(target_weights, portfolio, prices)
+
+    turnover = rebalancer.calculate_turnover(orders, portfolio, prices)
+
+    print(f"Turnover: {turnover:.2%}")
+
+    risk_manager = RiskManager(1.0, 1.0)
 
     execution = ExecutionHandler(0.001, 0.005)
 
     for order in orders:
+
         if risk_manager.check_order(order, portfolio, prices):
-            fill = execution.execute_order(order, prices[order.symbol])
+
+            fill = execution.execute_order(
+                order,
+                prices[order.symbol]
+            )
+
             portfolio.process_fill(fill)
 
         else:
-            print("Order rejected by risk manager")
+            print(
+                f"{order.symbol} {order.side} rejected"
+            )
 
     for symbol, position in portfolio.positions.items():
-        print(f"{symbol}: {position.quantity}")
+        print(symbol, position.quantity)
 
-    print(f"portfolio remaining cash: {portfolio.cash}")
+    print("Cash:", portfolio.cash)
+    print("Total value:", portfolio.total_value(prices))
 
 
 # Test
