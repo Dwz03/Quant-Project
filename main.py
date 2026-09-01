@@ -20,37 +20,35 @@ def main():
 
     portfolio = Portfolio(10000)
 
-    prices = {"AAPL": 100}
+    prices = {
+        "AAPL": 100,
+        "MSFT": 200,
+        "GOOG": 150
+    }
 
-    order = Order("AAPL", 10, "BUY")
+    orders = [
+        Order("AAPL", 15, "BUY"),
+        Order("MSFT", 7, "BUY"),
+        Order("GOOG", 10, "BUY"),
+        Order("AAPL", 5, "SELL")
+    ]
 
     risk_manager = RiskManager(0.2, 1.0)
 
     execution = ExecutionHandler(0.001, 0.005)
 
-    if risk_manager.check_order(order, portfolio, prices):
+    for order in orders:
+        if risk_manager.check_order(order, portfolio, prices):
+            fill = execution.execute_order(order, prices[order.symbol])
+            portfolio.process_fill(fill)
 
-        fill = execution.execute_order(order, prices["AAPL"])
-        portfolio.process_fill(fill)
+        else:
+            print("Order rejected by risk manager")
 
-    else:
-        print("Order rejected by risk manager")
+    for symbol, position in portfolio.positions.items():
+        print(f"{symbol}: {position.quantity}")
 
-    print(f"AAPL quantity is : {portfolio.get_position('AAPL').quantity}")
-    print(f"portfolio remaining cash is : {portfolio.cash}")
-
-    order_new = Order("AAPL", 500, "BUY")
-
-    if risk_manager.check_order(order_new, portfolio, prices):
-    
-        fill = execution.execute_order(order_new, prices["AAPL"])
-        portfolio.process_fill(fill)
-    
-    else:
-        print("Order rejected by risk manager")
-    
-    print(f"AAPL quantity is : {portfolio.get_position("AAPL").quantity}")
-    print(f"portfolio remaining cash is : {portfolio.cash}")
+    print(f"portfolio remaining cash: {portfolio.cash}")
 
 
 # Test

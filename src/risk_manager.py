@@ -62,7 +62,13 @@ class RiskManager:
             return required_cash <= portfolio.cash
 
         elif order.side == "SELL":
-            pass
+
+            position = portfolio.get_position(order.symbol)
+
+            if position is None:
+                return False
+
+            return order.quantity <= position.quantity
 
         else:
             raise ValueError("order side must be buy or sell")
