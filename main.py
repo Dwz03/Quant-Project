@@ -13,13 +13,28 @@ from src.order import Order
 from src.execution import ExecutionHandler
 from src.risk_manager import RiskManager
 from src.rebalancer import Rebalancer
+from src.trading_engine import TradingEngine
 
 import pandas as pd
 
 # Main script
+
+config = {
+    "initial_cash" : 10000,
+    "risk" : {
+        "max_position_weight" : 1.0,
+        "max_leverage" : 1.0
+    },
+    "execution" : {
+        "commission_rate" : 0.005,
+        "slippage_rate" : 0.005
+    }
+}
+
+
 def main():
 
-    portfolio = Portfolio(10000)
+    portfolio = Portfolio(config["initial_cash"])
 
     prices = {
         "AAPL": 100,
@@ -34,34 +49,18 @@ def main():
 
     rebalancer = Rebalancer()
 
-    orders = rebalancer.generate_orders(target_weights, portfolio, prices)
+    risk_manager = RiskManager(config["risk"]["max_position_weight"], config["risk"]["max_leverage"])
 
-    turnover = rebalancer.calculate_turnover(orders, portfolio, prices)
+    execution = ExecutionHandler(config["execution"]["slippage_rate"], config["execution"]["commission_rate"])
 
-    print(f"Turnover: {turnover:.2%}")
+    engine = TradingEngine(portfolio, risk_manager, execution, rebalancer)
 
-    risk_manager = RiskManager(1.0, 1.0)
-
-    execution = ExecutionHandler(0.001, 0.005)
-
-    for order in orders:
-
-        if risk_manager.check_order(order, portfolio, prices):
-
-            fill = execution.execute_order(
-                order,
-                prices[order.symbol]
-            )
-
-            portfolio.process_fill(fill)
-
-        else:
-            print(
-                f"{order.symbol} {order.side} rejected"
-            )
+    result = engine.rebalance(target_weights, prices)
 
     for symbol, position in portfolio.positions.items():
         print(symbol, position.quantity)
+
+    print(f"Turnover: {result['turnover']:.2%}")
 
     print("Cash:", portfolio.cash)
     print("Total value:", portfolio.total_value(prices))
