@@ -2,7 +2,7 @@
 import matplotlib.pyplot as plt
 from src.position import Position
 from src.portfolio import Portfolio
-from src.strategy import MovingAverageStrategy
+from src.strategy import MovingAverageStrategy, MomentumStrategy
 from src.tradingbot import TradingBot
 from src.data_loader import (load_market_data, add_returns, get_data_path,
                              clean_market_data, save_market_data, load_local_market_data)
@@ -35,35 +35,51 @@ config = {
 
 def main():
 
-    market_event = MarketEvent("AAPL", 105)
+    portfolio = Portfolio(10000)
 
-    print(market_event.symbol)
-    print(market_event.price)
-    print(market_event.type)
+    risk_manager = RiskManager(1.0, 1.0)
 
-    signal_event = SignalEvent("AAPL", "BUY")
+    execution = ExecutionHandler(0.001, 0.005)
 
-    print(signal_event.symbol)
-    print(signal_event.signal)
-    print(signal_event.type)
+    rebalancer = Rebalancer()
 
-    order = Order("AAPL", 40, "BUY")
-    order_event = OrderEvent(order)
+    strategy = MomentumStrategy(2)
 
-    print(order_event.type)
-    print(order_event.order.symbol)
-    print(order_event.order.quantity)
+    engine = TradingEngine(
+        portfolio,
+        risk_manager,
+        execution,
+        rebalancer,
+        strategy
+    )
 
-    fill = Fill("AAPL", 40, "BUY", 105, 0.005)
-    event = FillEvent(fill)
+    prices = {
+        "AAPL": 100
+    }
 
-    print(event.type)
-    print(event.fill.symbol)
-    print(event.fill.quantity)
-    print(event.fill.side)
-    print(event.fill.price)
-    
+    engine.add_event(
+        MarketEvent("AAPL", 100)
+    )
 
+    engine.run(prices)
+
+    print(portfolio.cash)
+    # 10000
+
+    print(portfolio.positions)
+    # {}
+
+    prices = {
+    "AAPL": 105
+}
+    engine.add_event(
+        MarketEvent("AAPL", 105)
+    )
+
+    engine.run(prices)
+
+    print(portfolio.get_position("AAPL").quantity)
+    print(portfolio.cash)
 
 
 
