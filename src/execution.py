@@ -1,5 +1,6 @@
 from .fill import Fill
 from .order import Order
+from .events import FillEvent
 
 class ExecutionHandler:
 
@@ -26,4 +27,12 @@ class ExecutionHandler:
         order.add_fill(fill.quantity)
 
         return fill
+
+    def on_order_event(self, event, prices):
+
+        order = event.order
+
+        fill = self.execute_order(order, prices[order.symbol])
+
+        return FillEvent(fill)
 

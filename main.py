@@ -14,6 +14,7 @@ from src.execution import ExecutionHandler
 from src.risk_manager import RiskManager
 from src.rebalancer import Rebalancer
 from src.trading_engine import TradingEngine
+from src.events import MarketEvent, SignalEvent, OrderEvent, FillEvent
 
 import pandas as pd
 
@@ -34,36 +35,37 @@ config = {
 
 def main():
 
-    portfolio = Portfolio(config["initial_cash"])
+    market_event = MarketEvent("AAPL", 105)
 
-    prices = {
-        "AAPL": 100,
-        "MSFT": 200,
-        "GOOG": 150
-    }
+    print(market_event.symbol)
+    print(market_event.price)
+    print(market_event.type)
 
-    target_weights = {
-        "AAPL": 0.4,
-        "MSFT": 0.59
-    }
+    signal_event = SignalEvent("AAPL", "BUY")
 
-    rebalancer = Rebalancer()
+    print(signal_event.symbol)
+    print(signal_event.signal)
+    print(signal_event.type)
 
-    risk_manager = RiskManager(config["risk"]["max_position_weight"], config["risk"]["max_leverage"])
+    order = Order("AAPL", 40, "BUY")
+    order_event = OrderEvent(order)
 
-    execution = ExecutionHandler(config["execution"]["slippage_rate"], config["execution"]["commission_rate"])
+    print(order_event.type)
+    print(order_event.order.symbol)
+    print(order_event.order.quantity)
 
-    engine = TradingEngine(portfolio, risk_manager, execution, rebalancer)
+    fill = Fill("AAPL", 40, "BUY", 105, 0.005)
+    event = FillEvent(fill)
 
-    result = engine.rebalance(target_weights, prices)
+    print(event.type)
+    print(event.fill.symbol)
+    print(event.fill.quantity)
+    print(event.fill.side)
+    print(event.fill.price)
+    
 
-    for symbol, position in portfolio.positions.items():
-        print(symbol, position.quantity)
 
-    print(f"Turnover: {result['turnover']:.2%}")
 
-    print("Cash:", portfolio.cash)
-    print("Total value:", portfolio.total_value(prices))
 
 
 # Test

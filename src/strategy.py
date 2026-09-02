@@ -1,5 +1,6 @@
 # Import
 from abc import ABC, abstractmethod
+from .events import SignalEvent
 
 # Main script
 class Strategy(ABC):
@@ -30,8 +31,10 @@ class AlwaysSellStrategy(Strategy):
 class MomentumStrategy(Strategy):
 
     def __init__(self, lookback):
+
         super().__init__("Momentum")
         self.lookback = lookback
+        self.last_prices = {}
 
     def generate_signal(self, prices):
 
@@ -39,11 +42,34 @@ class MomentumStrategy(Strategy):
             raise ValueError("Momentum Strategy require at least 2 prices")
 
         if prices[-1] > prices[-2]:
-            return "Buy"
+            return "BUY"
         elif prices[-1] == prices[-2]:
-            return "Hold"
+            return "HOLD"
         else:
-            return "Sell"
+            return "SELL"
+    def on_market_event(self, event):
+
+        symbol = event.symbol
+        price = event.price
+
+        if symbol not in self.last_prices:
+            self.last_prices[symbol] = price
+            return None
+
+        previous_price = self.last_prices[symbol]
+
+        if price > previous_price:
+            signal = SignalEvent(symbol, "BUY")
+
+        elif price < previous_price:
+            signal = SignalEvent(symbol, "SELL")
+
+        else:
+            signal = None
+
+        self.last_prices[symbol] = price
+
+        return signal
 
 class MeanReversionStrategy(Strategy):
 
@@ -60,9 +86,9 @@ class MeanReversionStrategy(Strategy):
         average_price = sum(historical_prices) / len(historical_prices)
 
         if prices[-1] < average_price:
-            return "Buy"
+            return "BUY"
         else:
-            return "Sell"
+            return "SELL"
 
 class MovingAverageStrategy(Strategy):
 

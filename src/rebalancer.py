@@ -1,5 +1,6 @@
 from .portfolio import Portfolio
 from .order import Order
+from .events import OrderEvent
 
 class Rebalancer:
 
@@ -68,6 +69,41 @@ class Rebalancer:
         total_turnover = turnover_value / portfolio_value
 
         return total_turnover
+
+    def current_weights(self, portfolio, prices):
+
+        portfolio_value = portfolio.total_value(prices)
+
+        weights = {}
+
+        for symbol, position in portfolio.positions.items():
+
+            value = position.quantity * prices[symbol]
+
+            weights[symbol] = value / portfolio_value
+
+        return weights
+
+    def on_signal_event(self, event, portfolio, prices, target_weight=0.5):
+
+        target_weights = self.current_weights(portfolio, prices)
+
+        if event.signal == "BUY":
+            target_weights[event.symbol] = target_weight
+
+        elif event.signal == "SELL":
+            target_weights[event.symbol] = 0
+
+        orders = self.generate_orders(target_weights, portfolio, prices)
+
+        order_events = []
+
+        for order in orders:
+            order_events.append(OrderEvent(order))
+
+        return order_events
+
+
 
 
 
