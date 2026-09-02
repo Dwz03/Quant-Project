@@ -15,6 +15,7 @@ from src.risk_manager import RiskManager
 from src.rebalancer import Rebalancer
 from src.trading_engine import TradingEngine
 from src.events import MarketEvent, SignalEvent, OrderEvent, FillEvent
+from src.event_backtester import EventDrivenBacktester
 
 import pandas as pd
 import logging
@@ -62,33 +63,24 @@ def main():
         strategy
     )
 
-    prices = {"AAPL": 100}
-
-    engine.add_event(
-        MarketEvent("AAPL", 100)
+    backtester = EventDrivenBacktester(
+        engine,
+        "AAPL"
     )
 
-    engine.run(prices)
+    prices = [
+        100,
+        105,
+        102,
+        108,
+        110
+    ]
 
-    prices = {"AAPL": 105}
+    results = backtester.run(prices)
 
-    engine.add_event(
-        MarketEvent("AAPL", 105)
-    )
-
-    engine.run(prices)
-
-    print(portfolio.get_position("AAPL").quantity)
-    print(portfolio.cash)
-
-    class FakeEvent:
-
-        def __init__(self):
-            self.type = "BANANA"
+    print(results)
 
 
-    engine.add_event(FakeEvent())
-    engine.run(prices)
 
 # Test
 if __name__ == "__main__":
