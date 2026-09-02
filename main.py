@@ -17,6 +17,12 @@ from src.trading_engine import TradingEngine
 from src.events import MarketEvent, SignalEvent, OrderEvent, FillEvent
 
 import pandas as pd
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+)
 
 # Main script
 
@@ -39,7 +45,10 @@ def main():
 
     risk_manager = RiskManager(1.0, 1.0)
 
-    execution = ExecutionHandler(0.001, 0.005)
+    execution = ExecutionHandler(
+        slippage_rate=0.001,
+        commission_rate=0.005
+    )
 
     rebalancer = Rebalancer()
 
@@ -53,9 +62,7 @@ def main():
         strategy
     )
 
-    prices = {
-        "AAPL": 100
-    }
+    prices = {"AAPL": 100}
 
     engine.add_event(
         MarketEvent("AAPL", 100)
@@ -63,15 +70,8 @@ def main():
 
     engine.run(prices)
 
-    print(portfolio.cash)
-    # 10000
+    prices = {"AAPL": 105}
 
-    print(portfolio.positions)
-    # {}
-
-    prices = {
-    "AAPL": 105
-}
     engine.add_event(
         MarketEvent("AAPL", 105)
     )
@@ -81,8 +81,14 @@ def main():
     print(portfolio.get_position("AAPL").quantity)
     print(portfolio.cash)
 
+    class FakeEvent:
+
+        def __init__(self):
+            self.type = "BANANA"
 
 
+    engine.add_event(FakeEvent())
+    engine.run(prices)
 
 # Test
 if __name__ == "__main__":

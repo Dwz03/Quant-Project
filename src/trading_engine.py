@@ -5,6 +5,8 @@ from .rebalancer import Rebalancer
 from .strategy import MomentumStrategy
 from .events import SignalEvent, OrderEvent, MarketEvent, FillEvent
 from collections import deque
+import logging
+logger = logging.getLogger(__name__)
 
 class TradingEngine:
 
@@ -32,7 +34,10 @@ class TradingEngine:
                 self.portfolio.process_fill(fill)
 
             else:
-                print(f"{order.symbol} {order.side} rejected")
+                    logger.warning(
+                        "%s %s order rejected by risk manager",
+                        order.symbol,
+                        order.side)
 
         return {"orders": orders, "requested_turnover": requested_turnover}
 
@@ -44,12 +49,21 @@ class TradingEngine:
 
             if event.type == "MARKET":
 
+                logger.debug(
+                    "Processing MARKET event for %s",
+                    event.symbol)
+
                 signal_event = self.strategy.on_market_event(event)
 
                 if signal_event is not None:
                     self.events.append(signal_event)
 
             elif event.type == "SIGNAL":
+
+                logger.info(
+                    "Signal generated: %s %s",
+                    event.signal,
+                    event.symbol)
 
                 order_events = self.rebalancer.on_signal_event(event, self.portfolio, prices)
 
@@ -63,20 +77,51 @@ class TradingEngine:
                 approved = self.risk_manager.check_order(order, self.portfolio, prices)
 
                 if approved:
+                    logger.info(
+                        "Order approved: %s %s %s",
+                        order.side,
+                        order.quantity,
+                        order.symbol)
 
                     fill_event = self.execution.on_order_event(event, prices)
 
-                    self.events.append(fill_event)
+                    if fill_event is not None:
+                        self.events.append(fill_event)
+
+                    else:
+                        logger.info(
+                            "Order not filled: %s %s",
+                            order.side,
+                            order.symbol)
 
                 else:
-                    print(f"{order.symbol} {order.side} rejected")
+                    logger.warning(
+                        "%s %s order rejected by risk manager",
+                        order.symbol,
+                        order.side)
 
             elif event.type == "FILL":
 
                 fill = event.fill
 
+                logger.info(
+                    "Fill processed: %s %s %s @ %.2f",
+                    fill.side,
+                    fill.quantity,
+                    fill.symbol,
+                    fill.price)
+
                 self.portfolio.process_fill(fill)
 
+            else:
+                raise ValueError(f"Unknown event type: {event.type}")
+
     def add_event(self, event):
+
+        if event is None:
+            raise ValueError("event cannot be None")
+
+        if not hasattr(event, "type"):
+            raise TypeError("event must have a type attribute")
 
         self.events.append(event)
