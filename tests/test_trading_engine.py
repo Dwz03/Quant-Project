@@ -3,6 +3,7 @@ from src.risk_manager import RiskManager
 from src.execution import ExecutionHandler
 from src.rebalancer import Rebalancer
 from src.trading_engine import TradingEngine
+from src.strategy import MomentumStrategy
 import pytest
 
 
@@ -12,8 +13,9 @@ def test_rebalance():
     risk_manager = RiskManager(1.0, 1.0)
     execution = ExecutionHandler(0.005, 0.005)
     rebalancer = Rebalancer()
+    strategy = MomentumStrategy
 
-    engine = TradingEngine(portfolio, risk_manager, execution, rebalancer)
+    engine = TradingEngine(portfolio, risk_manager, execution, rebalancer, strategy)
 
     prices = {
         "AAPL": 100,
