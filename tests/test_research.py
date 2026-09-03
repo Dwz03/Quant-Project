@@ -1,5 +1,7 @@
 from src.research import (split_data, calculate_zscore, generate_signal, signal_to_position,
-                          calculate_strategy_returns, calculate_equity_curve, run_mean_reversion)
+                          calculate_strategy_returns, calculate_equity_curve, run_mean_reversion,
+                          calculate_spread, estimate_beta, generate_pair_positions, calculate_pair_returns,
+                          run_pairs_trading, check_spread_stationarity, estimate_hedge_ratio)
 import pandas as pd
 import numpy as np
 import pytest
@@ -101,7 +103,117 @@ def test_end_to_end():
 
 
 
+def test_estimate_beta():
+
+    data = pd.DataFrame({
+        "symbol_2" : [100, 120, 150],
+        "symbol_1" : [200, 240, 300]
+    })
+
+    result = estimate_beta(data)
+
+    assert result == pytest.approx(2)
+
+def test_generate_pair_position():
+
+    zscore = pd.Series([0, 2, -2])
+    threshold = 1
+    beta = 0.5
+
+    result = generate_pair_positions(zscore, threshold, beta)
+
+    assert result["position_1"].iloc[0] == 0
+    assert result["position_2"].iloc[0] == 0
+    assert result["position_1"].iloc[1] == -1
+    assert result["position_2"].iloc[1] == pytest.approx(0.5)
+    assert result["position_1"].iloc[2] == 1
+    assert result["position_2"].iloc[2] == pytest.approx(-0.5)
+
+
+def test_calculate_pair_returns():
+
+    data = pd.DataFrame({
+        "symbol_1": [100, 110, 121],
+        "symbol_2": [200, 180, 198]
+    })
+
+    positions = pd.DataFrame({
+        "position_1": [1, -1, 0],
+        "position_2": [-0.5, 0.5, 0]
+    })
+
+    result = calculate_pair_returns(data, positions)
+
+    assert pd.isna(result["strategy_return"].iloc[0])
+    assert result["strategy_return"].iloc[1] == pytest.approx(0.15)
+    assert result["strategy_return"].iloc[2] == pytest.approx(-0.05)
 
 
 
-    
+def test_run_pairs_trading():
+
+    data = pd.DataFrame({
+        "symbol_1": [100, 121, 139, 181, 199],
+        "symbol_2": [210, 240, 280, 360, 400]
+    })
+
+    result = run_pairs_trading(data, alpha = 10, beta=0.5, window=3, threshold=1)
+
+    assert "spread" in result.columns
+    assert "zscore" in result.columns
+    assert "position_1" in result.columns
+    assert "position_2" in result.columns
+    assert "strategy_return" in result.columns
+    assert "equity" in result.columns
+
+    assert len(result) == len(data)
+
+    assert result["spread"].notna().all()
+    assert result["zscore"].notna().sum() > 0
+    assert result["strategy_return"].notna().sum() > 0
+
+def test_check_spread_stationarity():
+
+    np.random.seed(42)
+
+    spread = [0]
+
+    for _ in range(100):
+        new_value = 0.5 * spread[-1] + np.random.normal()
+        spread.append(new_value)
+
+    spread = pd.Series(spread)
+
+    result = check_spread_stationarity(spread)
+
+    assert "adf_statistic" in result
+    assert "p_value" in result
+    assert "is_stationary" in result
+
+    assert result["p_value"] < 0.05
+    assert result["is_stationary"] == True
+
+def test_hedge_ratio():
+
+    data = pd.DataFrame({
+        "symbol_1": [210, 252, 288, 372, 408],
+        "symbol_2": [100, 121, 139, 181, 199]
+    })
+
+    result = estimate_hedge_ratio(data)
+
+    assert result["alpha"] == pytest.approx(10)
+    assert result["beta"] == pytest.approx(2)
+
+def test_calculate_spread():
+
+    data = pd.DataFrame({
+        "symbol_1": [210, 252, 288],
+        "symbol_2": [100, 121, 139]
+    })
+
+    result = calculate_spread(data, 2.0, 10.0)
+
+    assert result["spread"].iloc[0] == pytest.approx(0)
+    assert result["spread"].iloc[1] == pytest.approx(0)
+    assert result["spread"].iloc[2] == pytest.approx(0)

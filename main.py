@@ -16,6 +16,8 @@ from src.rebalancer import Rebalancer
 from src.trading_engine import TradingEngine
 from src.events import MarketEvent, SignalEvent, OrderEvent, FillEvent
 from src.event_backtester import EventDrivenBacktester
+from src.research import (split_data, estimate_beta, calculate_spread, check_spread_stationarity,
+                          check_cointegration, estimate_hedge_ratio)
 
 import pandas as pd
 import logging
@@ -42,43 +44,44 @@ config = {
 
 def main():
 
-    portfolio = Portfolio(10000)
+    ko = load_market_data("KO", "2020-01-01", "2025-12-31")
+    pep = load_market_data("PEP", "2020-01-01", "2025-12-31")
 
-    risk_manager = RiskManager(1.0, 1.0)
+    pair_data = pd.DataFrame({
+        "symbol_1": ko["Close"],
+        "symbol_2": pep["Close"]
+    }).dropna()
 
-    execution = ExecutionHandler(
-        slippage_rate=0.001,
-        commission_rate=0.005
+    train, validation, test = split_data(
+        pair_data,
+        train_ratio=0.6,
+        validation_ratio=0.2
     )
 
-    rebalancer = Rebalancer()
+    hedge = estimate_hedge_ratio(train)
 
-    strategy = MomentumStrategy(2)
+    alpha = hedge["alpha"]
+    beta = hedge["beta"]
 
-    engine = TradingEngine(
-        portfolio,
-        risk_manager,
-        execution,
-        rebalancer,
-        strategy
+    train_spread = calculate_spread(
+        train,
+        beta=beta,
+        alpha=alpha
     )
 
-    backtester = EventDrivenBacktester(
-        engine,
-        "AAPL"
+    stationarity = check_spread_stationarity(
+        train_spread["spread"]
     )
 
-    prices = [
-        100,
-        105,
-        102,
-        108,
-        110
-    ]
+    cointegration = check_cointegration(train)
 
-    results = backtester.run(prices)
+    print("alpha:", alpha)
+    print("beta:", beta)
+    print("ADF:", stationarity)
+    print("Cointegration:", cointegration)
 
-    print(results)
+
+
 
 
 
