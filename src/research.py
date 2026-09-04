@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from statsmodels.tsa.stattools import adfuller, coint
+from sklearn.decomposition import PCA
 
 def split_data(data, train_ratio, validation_ratio):
 
@@ -197,7 +198,68 @@ def estimate_hedge_ratio(data):
     }
 
 
+def calculate_pca_residuals(data, pca):
+
+    data_used = data.copy()
+
+    factors = pca.transform(data_used)
+
+    reconstructed = pca.inverse_transform(factors)
+
+    reconstructed = pd.DataFrame(reconstructed, index = data_used.index, columns = data_used.columns)
+
+    residual = data_used - reconstructed
+
+    return residual
 
 
+def calculate_residual_zscore(residuals, window):
 
+    rolling_mean = residuals.rolling(window).mean()
+    rolling_std = residuals.rolling(window).std()
 
+    zscore = (residuals - rolling_mean) / rolling_std
+
+    return zscore
+
+def generate_residual_signals(zscores, threshold):
+
+    signals = pd.DataFrame(0.0, index = zscores.index, columns = zscores.columns)
+    signals[zscores > threshold] = -1
+    signals[zscores < -threshold] = +1
+
+    return signals
+
+def run_pca_stat_arb(data, historical_data, pca, window, threshold):
+
+    historical_residual = calculate_pca_residuals(historical_data, pca)
+
+    residuals = calculate_pca_residuals(data, pca)
+
+    zscores = calculate_residual_zscore_with_history(historical_residual, residuals, window)
+
+    signals = generate_residual_signals(zscores, threshold)
+
+    return {
+        "residuals": residuals,
+        "zscores": zscores,
+        "signals": signals
+    }
+    
+def fit_pca(data, n_components):
+
+    data_used = data.copy()
+
+    pca = PCA(n_components = n_components)
+
+    return pca.fit(data_used)
+
+def calculate_residual_zscore_with_history(history_residuals, residuals, window):
+
+    combined = pd.concat([history_residuals, residuals])
+
+    combined_zscores = calculate_residual_zscore(combined, window)
+
+    zscores = combined_zscores.iloc[-len(residuals):]
+
+    return zscores

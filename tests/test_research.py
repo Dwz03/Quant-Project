@@ -1,7 +1,9 @@
 from src.research import (split_data, calculate_zscore, generate_signal, signal_to_position,
                           calculate_strategy_returns, calculate_equity_curve, run_mean_reversion,
                           calculate_spread, estimate_beta, generate_pair_positions, calculate_pair_returns,
-                          run_pairs_trading, check_spread_stationarity, estimate_hedge_ratio)
+                          run_pairs_trading, check_spread_stationarity, estimate_hedge_ratio,
+                          calculate_pca_residuals, calculate_residual_zscore, generate_residual_signals,
+                          run_pca_stat_arb, fit_pca, calculate_residual_zscore_with_history)
 import pandas as pd
 import numpy as np
 import pytest
@@ -217,3 +219,146 @@ def test_calculate_spread():
     assert result["spread"].iloc[0] == pytest.approx(0)
     assert result["spread"].iloc[1] == pytest.approx(0)
     assert result["spread"].iloc[2] == pytest.approx(0)
+
+
+def test_calculate_pca_residuals_shape():
+
+    train = pd.DataFrame({
+        "AAPL": [0.01, 0.02, -0.01, 0.03],
+        "MSFT": [0.02, 0.01, -0.02, 0.02],
+        "GOOG": [0.01, -0.01, 0.02, 0.01]
+    })
+
+    test = pd.DataFrame({
+        "AAPL": [-0.02, 0.01],
+        "MSFT": [-0.01, 0.03],
+        "GOOG": [-0.03, 0.02]
+    })
+
+    pca = fit_pca(train, 2)
+
+    result = calculate_pca_residuals(test, pca)
+
+    assert result.shape == test.shape
+    assert result.index.equals(test.index)
+    assert result.columns.equals(test.columns)
+
+def test_calculate_residual_zscore():
+    train = pd.DataFrame({
+        "AAPL": [0.01, 0.02, -0.01, 0.03],
+        "MSFT": [0.02, 0.01, -0.02, 0.02],
+        "GOOG": [0.01, -0.01, 0.02, 0.01]
+    })
+
+    test = pd.DataFrame({
+        "AAPL": [-0.02, 0.01],
+        "MSFT": [-0.01, 0.03],
+        "GOOG": [-0.03, 0.02]
+    })
+
+    pca = fit_pca(train, 2)
+
+    residuals = calculate_pca_residuals(test, pca)
+
+    result = calculate_residual_zscore(residuals, 3)
+
+    assert result.shape == residuals.shape
+    assert result.columns.equals(residuals.columns)
+    assert result.index.equals(residuals.index)
+
+    assert result.iloc[0].isna().all()
+    assert result.iloc[1].isna().all()
+
+def test_generate_signals():
+
+    zscores = pd.DataFrame({
+        "AAPL": [-2.0, 0.5, 1.5],
+        "MSFT": [2.0, -0.2, -1.5]
+    })
+
+    result = generate_residual_signals(zscores, 1)
+
+    expected = pd.DataFrame({
+        "AAPL" : [1.0, 0, -1.0],
+        "MSFT" : [-1.0, 0, +1.0]
+    })
+
+    pd.testing.assert_frame_equal(result, expected)
+
+def test_run_pca_stat_arb():
+
+    train = pd.DataFrame({
+        "AAPL": [0.01, 0.02, -0.01, 0.03],
+        "MSFT": [0.02, 0.01, -0.02, 0.02],
+        "GOOG": [0.01, -0.01, 0.02, 0.01]
+    })
+
+    test = pd.DataFrame({
+        "AAPL": [-0.02, 0.01, 0.03, -0.01],
+        "MSFT": [-0.01, 0.03, 0.02, -0.02],
+        "GOOG": [-0.03, 0.02, 0.01, 0.03]
+    })
+
+    pca = fit_pca(train, 2)
+
+    result = run_pca_stat_arb(
+        test,
+        train,
+        pca,
+        window=3,
+        threshold=1
+    )
+
+    assert set(result.keys()) == {
+        "residuals",
+        "zscores",
+        "signals"
+    }
+
+    assert result["residuals"].shape == test.shape
+    assert result["zscores"].shape == test.shape
+    assert result["signals"].shape == test.shape
+
+    assert result["zscores"].index.equals(test.index)
+    assert result["signals"].columns.equals(test.columns)
+
+    assert result["zscores"].iloc[0].notna().all()
+
+
+def test_residual_zscore_with_history():
+
+    train = pd.DataFrame({
+        "AAPL": [0.01, 0.02, -0.01, 0.03],
+        "MSFT": [0.02, 0.01, -0.02, 0.02],
+        "GOOG": [0.01, -0.01, 0.02, 0.01]
+    })
+
+    test = pd.DataFrame({
+        "AAPL": [-0.02, 0.01, 0.03, -0.01],
+        "MSFT": [-0.01, 0.03, 0.02, -0.02],
+        "GOOG": [-0.03, 0.02, 0.01, 0.03]
+    })
+
+    pca = fit_pca(train, 2)
+
+    train_residual = calculate_pca_residuals(train, pca)
+
+    test_residual = calculate_pca_residuals(test, pca)
+
+    result = calculate_residual_zscore_with_history(train_residual, test_residual, 3)
+
+    assert result.shape == test_residual.shape
+    assert result.index.equals(test_residual.index)
+    assert result.iloc[0].notna().all()
+
+
+
+
+
+
+
+
+
+
+
+
