@@ -2,7 +2,8 @@ import pandas as pd
 import pytest
 import numpy as np
 
-from src.metrics import total_return, annualized_volatility, sharpe_ratio,max_drawdown, performance_summary
+from src.metrics import (total_return, annualized_volatility, sharpe_ratio,max_drawdown, 
+                         performance_summary)
 
 def test_total_return():
 

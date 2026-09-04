@@ -54,3 +54,4 @@ def max_drawdown(returns):
     drawdown = equity / running_max - 1
 
     return drawdown.min()
+

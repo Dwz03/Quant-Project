@@ -13,17 +13,14 @@ class Portfolio:
         self.realised_pnl = 0
         self.total_commission = 0
 
-    def _validate_trade(self, quantity, price):
-
-        if quantity <= 0:
-            raise ValueError(f"the number of shares must be positive!")
+    def _validate_trade(self, price):
 
         if price <= 0:
             raise ValueError(f"the price of shares must be positive!") # This could be change later
             
     def buy(self, symbol, quantity, price):
 
-        self._validate_trade(quantity, price)
+        self._validate_trade(price)
 
         position = self.positions.get(symbol)
 
@@ -53,7 +50,7 @@ class Portfolio:
         if quantity > position.quantity:
             raise ValueError(f"Cannot sell {symbol} : we do not have enough quantity!")
 
-        self._validate_trade(quantity,price)
+        self._validate_trade(price)
 
         gain = quantity * price
         self.cash = self.cash + gain
@@ -180,67 +177,55 @@ class Portfolio:
             total = total + abs(value)
         return total
 
+    def net_exposure(self, prices):
 
-if __name__ == "__main__":
+        total = 0
+        for symbol, position in self.positions.items():
 
-    portfolio = Portfolio(10000)
+            if symbol not in prices:
+                raise ValueError(f"missing price for {symbol}")
 
-    buy_fill = Fill(
-        "AAPL",
-        10,
-        "BUY",
-        100,
-        0.001
-    )
+            price = prices[symbol]
+            value = position.quantity * price
+            total = total + value
+        return total
 
-    portfolio.process_fill(buy_fill)
+    def gross_exposure_ratio(self, prices):
 
-    prices = {
-        "AAPL": 120
-    }
+        equity = self.total_value(prices)
 
-    print("Cash:", portfolio.cash)
-    print("Realised PnL:", portfolio.realised_pnl)
-    print("Unrealised PnL:", portfolio.total_unrealised_pnl(prices))
-    print("Commission:", portfolio.total_commission)
-    print("Portfolio PnL:", portfolio.pnl(prices))
+        if equity <= 0:
+            raise ValueError("portfolio equity must be positive")
 
-    accounting_pnl = (
-        portfolio.realised_pnl
-        + portfolio.total_unrealised_pnl(prices)
-        - portfolio.total_commission
-    )
-
-    print(accounting_pnl)
-
-    sell_fill = Fill(
-        "AAPL",
-        4,
-        "SELL",
-        130,
-        0.001
-    )
-
-    portfolio.process_fill(sell_fill)
-
-    prices = {
-        "AAPL": 130
-    }
-
-    print(portfolio.pnl(prices))
-
-    print(portfolio.realised_pnl + portfolio.total_unrealised_pnl(prices) - portfolio.total_commission)
-
-    
+        return self.gross_exposure(prices) / equity
 
 
+    def net_exposure_ratio(self, prices):
 
+        equity = self.total_value(prices)
 
+        if equity <= 0:
+            raise ValueError("portfolio equity must be positive")
 
+        return self.net_exposure(prices) / equity
 
+    def asset_exposure_ratio(self, symbol, prices):
 
+        if symbol not in prices:
+            raise ValueError(f"missing price for {symbol}")
 
+        position = self.get_position(symbol)
 
+        if position is None:
+            return 0
 
+        equity = self.total_value(prices)
+
+        if equity <= 0:
+            raise ValueError("portfolio equity must be positive")
+
+        exposure = abs(position.quantity * prices[symbol])
+
+        return exposure / equity
 
 

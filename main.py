@@ -16,8 +16,8 @@ from src.rebalancer import Rebalancer
 from src.trading_engine import TradingEngine
 from src.events import MarketEvent, SignalEvent, OrderEvent, FillEvent
 from src.event_backtester import EventDrivenBacktester
-from src.research import (split_data, estimate_beta, calculate_spread, check_spread_stationarity,
-                          check_cointegration, estimate_hedge_ratio)
+from src.research import (split_data, estimate_hedge_ratio, calculate_spread,check_spread_stationarity,
+                          check_cointegration)
 
 import pandas as pd
 import logging
@@ -79,10 +79,6 @@ def main():
     print("beta:", beta)
     print("ADF:", stationarity)
     print("Cointegration:", cointegration)
-
-
-
-
 
 
 # Test

@@ -110,32 +110,3 @@ class MovingAverageStrategy(Strategy):
 
         return data
 
-# Test
-if __name__ == "__main__":
-
-    buy_strategy = AlwaysBuyStrategy()
-    sell_strategy = AlwaysSellStrategy()
-
-    print(buy_strategy.generate_signal([100, 101, 102]))
-    print(sell_strategy.generate_signal([100, 101, 102]))
-
-    strategies = [
-        AlwaysBuyStrategy(),
-        AlwaysSellStrategy()
-        ]
-
-    for strategy in strategies:
-        print(strategy.generate_signal([100, 101, 102]))
-
-    momentum = MomentumStrategy(5)
-    mean_reversion = MeanReversionStrategy(3)
-
-    prices = [100, 101]
-
-    strategies = [
-        momentum,
-        mean_reversion
-    ]
-
-    for strategy in strategies:
-        print(strategy.generate_signal(prices))

@@ -67,14 +67,6 @@ def test_buy_invalid_price():
     with pytest.raises(ValueError):
         portfolio.buy("AAPL", 10, 0)
 
-def test_buy_invalid_quantity():
-
-    portfolio = Portfolio(100000)
-    
-    with pytest.raises(ValueError):
-        portfolio.buy("AAPL", 0, 100)
-
-
 def test_sell_partial_position():
 
     portfolio = Portfolio(100000)
@@ -158,3 +150,51 @@ def test_return_pct(sample_portfolio):
 
     assert portfolio.return_pct(prices) == pytest.approx(0.0045)
 
+def test_net_exposure():
+
+    portfolio = Portfolio(10000)
+
+    portfolio.positions["AAPL"] = Position("AAPL", 40, 100)
+    portfolio.positions["MSFT"] = Position("MSFT", -20, 200)
+
+    prices = {
+        "AAPL": 100,
+        "MSFT": 200
+    }
+
+    result = portfolio.net_exposure(prices)
+
+    assert result == 0
+
+def test_exposure_ratios():
+
+    portfolio = Portfolio(10000)
+
+    portfolio.positions["AAPL"] = Position("AAPL", 40, 100)
+    portfolio.positions["MSFT"] = Position("MSFT", -20, 200)
+
+    prices = {
+        "AAPL": 100,
+        "MSFT": 200
+    }
+
+    gross_ratio = portfolio.gross_exposure_ratio(prices)
+    net_ratio = portfolio.net_exposure_ratio(prices)
+
+    assert gross_ratio == pytest.approx(0.8)
+    assert net_ratio == pytest.approx(0.0)
+
+def test_asset_exposure_ratio():
+
+    portfolio = Portfolio(10000)
+
+    portfolio.cash = 6000
+    portfolio.positions["AAPL"] = Position("AAPL", 40, 100)
+
+    prices = {
+        "AAPL": 100
+    }
+
+    result = portfolio.asset_exposure_ratio("AAPL", prices)
+
+    assert result == pytest.approx(0.4)

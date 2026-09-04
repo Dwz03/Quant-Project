@@ -51,3 +51,71 @@ def test_reject_order_when_leverage_exceeded():
     order = Order(symbol="AAPL", quantity=60, side="BUY")
 
     assert risk_manager.check_order(order, portfolio, prices) is False
+
+def test_check_net_exposure_neutral():
+
+    portfolio = Portfolio(10000)
+
+    portfolio.positions["AAPL"] = Position("AAPL", 40, 100)
+    portfolio.positions["MSFT"] = Position("MSFT", -20, 200)
+
+    prices = {
+        "AAPL": 100,
+        "MSFT": 200
+    }
+
+    risk_manager = RiskManager(1.0, 1.0)
+
+    result = risk_manager.check_net_exposure(
+        portfolio,
+        prices,
+        max_net_exposure=0.05
+    )
+
+    assert result is True
+
+def test_check_net_exposure_not_neutral():
+
+    portfolio = Portfolio(10000)
+
+    portfolio.positions["AAPL"] = Position("AAPL", 40, 100)
+    portfolio.positions["MSFT"] = Position("MSFT", -10, 200)
+
+    prices = {
+        "AAPL": 100,
+        "MSFT": 200
+    }
+
+    risk_manager = RiskManager(1.0, 1.0)
+
+    result = risk_manager.check_net_exposure(
+        portfolio,
+        prices,
+        max_net_exposure=0.05
+    )
+
+    assert result is False
+
+def test_check_portfolio_exposures_net_short_fail():
+
+    portfolio = Portfolio(10000)
+
+    portfolio.cash = 12000
+    portfolio.positions["MSFT"] = Position("MSFT", -20, 100)
+
+    prices = {
+        "MSFT": 100
+    }
+
+    risk_manager = RiskManager(1.0, 1.0)
+
+    result = risk_manager.check_portfolio_exposures(
+        portfolio,
+        prices,
+        max_gross_exposure=1.0,
+        max_net_exposure=0.05
+    )
+
+    assert result["net_exposure"] == pytest.approx(-0.2)
+    assert result["net_ok"] is False
+    assert result["portfolio_ok"] is False

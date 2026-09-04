@@ -12,9 +12,6 @@ class Position:
         else:
             raise TypeError("quantity must be a number")
 
-        if quantity <= 0:
-            raise ValueError("quantity must be positive")
-
         if not isinstance(average_cost, (int, float)):
             raise TypeError("average cost must be a number")
 

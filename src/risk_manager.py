@@ -111,6 +111,28 @@ class RiskManager:
 
         return max_position_ok and cash_ok and leverage_ok
 
+    def check_net_exposure(self, portfolio, prices, max_net_exposure):
+
+        net_ratio = portfolio.net_exposure_ratio(prices)
+
+        return abs(net_ratio) <= max_net_exposure
+
+    def check_portfolio_exposures(self, portfolio, prices, max_gross_exposure, max_net_exposure):
+
+        gross_exposure = portfolio.gross_exposure_ratio(prices)
+        net_exposure = portfolio.net_exposure_ratio(prices)
+
+        gross_ok = gross_exposure <= max_gross_exposure
+        net_ok = abs(net_exposure) <= max_net_exposure
+
+        return {
+            "gross_exposure": gross_exposure,
+            "net_exposure": net_exposure,
+            "gross_ok": gross_ok,
+            "net_ok": net_ok,
+            "portfolio_ok": gross_ok and net_ok
+        }
+
 
 
 
