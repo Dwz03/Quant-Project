@@ -6,7 +6,16 @@ from src.research.validation import (run_validation_comparison, compare_strategi
                                      build_strategy_comparison, walk_forward_split, 
                                      combine_history_and_test, walk_forward_mean_reversion,
                                      walk_forward_pca, calculate_pca_stability,
-                                     calculate_signal_disagreement)
+                                     calculate_signal_disagreement, select_best_mean_reversion_parameters,
+                                     evaluate_mean_reversion_on_test, run_mean_reversion_research,
+                                     build_parameter_surface, calculate_local_robustness,
+                                     is_parameter_robust, summarize_parameter_robustness, 
+                                     apply_transaction_costs, run_cost_sensitivity, find_break_even_cost,
+                                     classify_volatility_regime, compare_performance_by_regime, 
+                                     run_regime_analysis, attribute_performance_by_position,
+                                     attribute_performance_by_month, attribute_performance_by_asset,
+                                     run_performance_attribution)
+from src.metrics import performance_summary
 
 def test_walk_forward_split():
 
@@ -282,3 +291,597 @@ def test_run_validation_comparison():
 
     assert not result["selected_pairs"].empty
 
+def test_select_best_mean_reversion_parameters():
+
+    tuning_results = pd.DataFrame({
+        "window": [10, 20, 30],
+        "threshold": [1.0, 1.5, 2.0],
+        "Sharpe Ratio": [0.5, 1.2, 0.8]
+    })
+
+    result = select_best_mean_reversion_parameters(tuning_results)
+
+    assert result["window"] == 20
+    assert result["threshold"] == 1.5
+
+def test_evaluate_mean_reversion_on_test():
+
+    train_data = pd.DataFrame({
+        "Close": [100, 102, 101, 103, 105]
+    })
+
+    validation_data = pd.DataFrame({
+        "Close": [104, 106, 105]
+    })
+
+    test_data = pd.DataFrame({
+        "Close": [107, 106, 108]
+    })
+
+    best_parameters = {
+        "window": 3,
+        "threshold": 1.0
+    }
+
+    result = evaluate_mean_reversion_on_test(
+        train_data,
+        validation_data,
+        test_data,
+        best_parameters
+    )
+
+    assert isinstance(result, pd.DataFrame)
+
+    assert "strategy_return" in result.columns
+
+    assert len(result) == len(test_data)
+
+    assert result.index.equals(test_data.index)
+
+def test_run_mean_reversion_research():
+
+    train_data = pd.DataFrame({
+        "Close": [100, 102, 101, 103, 105, 104]
+    })
+
+    validation_data = pd.DataFrame({
+        "Close": [106, 105, 107, 104]
+    })
+
+    test_data = pd.DataFrame({
+        "Close": [108, 106, 109, 107]
+    })
+
+    result = run_mean_reversion_research(
+        train_data,
+        validation_data,
+        test_data,
+        windows=[2, 3],
+        thresholds=[0.5, 1.0]
+    )
+
+    assert "tuning_results" in result
+    assert "best_parameters" in result
+    assert "test_result" in result
+    assert "test_performance" in result
+
+    assert len(result["tuning_results"]) == 4
+
+    assert "window" in result["best_parameters"]
+    assert "threshold" in result["best_parameters"]
+
+    assert len(result["test_result"]) == len(test_data)
+
+def test_build_parameter_surface():
+
+    tuning_results = pd.DataFrame({
+        "window": [10, 10, 20, 20],
+        "threshold": [1.0, 1.5, 1.0, 1.5],
+        "Sharpe Ratio": [0.8, 1.0, 1.1, 1.2]
+    })
+
+    result = build_parameter_surface(
+        tuning_results
+    )
+
+    assert result.loc[10, 1.0] == 0.8
+    assert result.loc[10, 1.5] == 1.0
+    assert result.loc[20, 1.0] == 1.1
+    assert result.loc[20, 1.5] == 1.2
+
+    assert result.shape == (2, 2)
+
+def test_calculate_local_robustness():
+
+    tuning_results = pd.DataFrame({
+        "window": [
+            10, 10, 10,
+            20, 20, 20,
+            30, 30, 30
+        ],
+        "threshold": [
+            1.0, 1.5, 2.0,
+            1.0, 1.5, 2.0,
+            1.0, 1.5, 2.0
+        ],
+        "Sharpe Ratio": [
+            1.0, 1.1, 1.0,
+            1.2, 1.5, 1.1,
+            1.0, 1.2, 1.1
+        ]
+    })
+
+    result = calculate_local_robustness(
+        tuning_results
+    )
+
+    assert result["best_window"] == 20
+    assert result["best_threshold"] == 1.5
+    assert result["best_metric"] == 1.5
+
+    assert result["neighbor_mean"] == pytest.approx(
+        (1.0 + 1.1 + 1.0 +
+         1.2 + 1.1 +
+         1.0 + 1.2 + 1.1) / 8
+    )
+
+    assert result["performance_drop"] == pytest.approx(
+        1.5 - result["neighbor_mean"]
+    )
+
+def test_is_parameter_robust():
+
+    robust_result = {
+        "performance_drop": 0.15,
+        "neighbor_std": 0.20
+    }
+
+    unstable_result = {
+        "performance_drop": 0.8,
+        "neighbor_std": 0.6
+    }
+
+    assert is_parameter_robust(
+        robust_result,
+        max_performance_drop=0.3,
+        max_neighbor_std=0.3
+    )
+
+    assert not is_parameter_robust(
+        unstable_result,
+        max_performance_drop=0.3,
+        max_neighbor_std=0.3
+    )
+
+def test_summarize_parameter_robustness():
+
+    tuning_results = pd.DataFrame({
+        "window": [
+            10, 10, 10,
+            20, 20, 20,
+            30, 30, 30
+        ],
+        "threshold": [
+            1.0, 1.5, 2.0,
+            1.0, 1.5, 2.0,
+            1.0, 1.5, 2.0
+        ],
+        "Sharpe Ratio": [
+            1.1, 1.2, 1.1,
+            1.2, 1.3, 1.2,
+            1.1, 1.2, 1.1
+        ]
+    })
+
+    result = summarize_parameter_robustness(
+        tuning_results,
+        max_performance_drop=0.3,
+        max_neighbor_std=0.3
+    )
+
+    assert result["best_window"] == 20
+    assert result["best_threshold"] == 1.5
+
+    assert "neighbor_mean" in result
+    assert "neighbor_std" in result
+    assert "performance_drop" in result
+    assert "robust" in result
+
+    assert result["robust"] is True
+
+def test_apply_transaction_costs():
+
+    strategy_returns = pd.Series([
+        0.00,
+        0.02,
+        0.01,
+        -0.03
+    ])
+
+    positions = pd.Series([
+        0,
+        1,
+        1,
+        -1
+    ])
+
+    result = apply_transaction_costs(
+        strategy_returns,
+        positions,
+        cost_rate=0.001
+    )
+
+    assert result["turnover"].tolist() == [
+        0, 1, 0, 2
+    ]
+
+    assert result["cost"].tolist() == pytest.approx([
+        0,
+        0.001,
+        0,
+        0.002
+    ])
+
+    assert result["net_strategy_return"].tolist() == pytest.approx([
+        0,
+        0.019,
+        0.01,
+        -0.032
+    ])
+
+def test_run_cost_sensitivity():
+
+    strategy_returns = pd.Series([
+        0.00,
+        0.02,
+        0.01,
+        -0.03,
+        0.02
+    ])
+
+    positions = pd.Series([
+        0,
+        1,
+        1,
+        -1,
+        0
+    ])
+
+    cost_rates = [
+        0,
+        0.0005,
+        0.001
+    ]
+
+    result = run_cost_sensitivity(
+        strategy_returns,
+        positions,
+        cost_rates
+    )
+
+    assert isinstance(result, pd.DataFrame)
+
+    assert len(result) == 3
+
+    assert result["cost_rate"].tolist() == cost_rates
+
+    assert "Total Return" in result.columns
+    assert "Sharpe Ratio" in result.columns
+    assert "Max Drawdown" in result.columns
+
+    assert (result.loc[result["cost_rate"] == 0.001, "Total Return"].iloc[0]
+            <=
+            result.loc[result["cost_rate"] == 0, "Total Return"].iloc[0])
+
+def test_find_break_even_cost():
+
+    results = pd.DataFrame({
+        "cost_rate": [
+            0,
+            0.0005,
+            0.001,
+            0.002
+        ],
+        "Total Return": [
+            0.10,
+            0.06,
+            0.02,
+            -0.03
+        ]
+    })
+
+    break_even_cost = find_break_even_cost(results)
+
+    assert break_even_cost == pytest.approx(0.002)
+
+def test_find_break_even_cost_not_reached():
+
+    results = pd.DataFrame({
+        "cost_rate": [
+            0,
+            0.0005,
+            0.001
+        ],
+        "Total Return": [
+            0.10,
+            0.08,
+            0.05
+        ]
+    })
+
+    break_even_cost = find_break_even_cost(results)
+
+    assert break_even_cost is None
+
+def test_classify_volatility_regime():
+
+    returns = pd.Series([
+        0.01,
+        0.01,
+        0.01,
+        0.10,
+        -0.10,
+        0.10
+    ])
+
+    result = classify_volatility_regime(
+        returns,
+        window=3,
+        volatility_threshold=0.05
+    )
+
+    assert "rolling_volatility" in result.columns
+    assert "regime" in result.columns
+
+    assert len(result) == len(returns)
+
+    assert pd.isna(result["regime"].iloc[0])
+    assert pd.isna(result["regime"].iloc[1])
+    assert pd.isna(result["regime"].iloc[2])
+
+    assert result["regime"].iloc[3] == "calm"
+
+    assert result["regime"].iloc[5] == "volatile"
+
+def test_compare_performance_by_regime():
+
+    strategy_returns = pd.Series([
+        0.01,
+        0.02,
+        -0.01,
+        0.03,
+        -0.02,
+        0.01
+    ])
+
+    regimes = pd.Series([
+        "calm",
+        "calm",
+        "volatile",
+        "volatile",
+        "volatile",
+        "calm"
+    ])
+
+    result = compare_performance_by_regime(
+        strategy_returns,
+        regimes
+    )
+
+    assert isinstance(result, pd.DataFrame)
+
+    assert "calm" in result.index
+    assert "volatile" in result.index
+
+    assert "Total Return" in result.columns
+    assert "Sharpe Ratio" in result.columns
+    assert "Max Drawdown" in result.columns
+
+    calm_expected = performance_summary(
+        pd.Series([0.01, 0.02, 0.01])
+    )
+
+    assert result.loc["calm", "Total Return"] == pytest.approx(
+        calm_expected["Total Return"]
+    )
+
+def test_run_regime_analysis():
+
+    market_returns = pd.Series([
+        0.01,
+        0.01,
+        0.01,
+        0.10,
+        -0.10,
+        0.10,
+        0.01
+    ])
+
+    strategy_returns = pd.Series([
+        0.01,
+        0.02,
+        0.01,
+        -0.03,
+        0.02,
+        -0.01,
+        0.01
+    ])
+
+    result = run_regime_analysis(
+        market_returns,
+        strategy_returns,
+        window=3,
+        volatility_threshold=0.05
+    )
+
+    assert "regime_result" in result
+    assert "comparison" in result
+
+    assert len(result["regime_result"]) == len(market_returns)
+
+    assert "regime" in result["regime_result"].columns
+
+    assert "calm" in result["comparison"].index
+    assert "volatile" in result["comparison"].index
+
+    assert "Sharpe Ratio" in result["comparison"].columns
+
+def test_attribute_performance_by_position():
+
+    strategy_returns = pd.Series([
+        0.00,
+        0.02,
+        0.01,
+        -0.01,
+        0.03,
+        -0.02
+    ])
+
+    positions = pd.Series([
+        0,
+        1,
+        1,
+        -1,
+        1,
+        -1
+    ])
+
+    result = attribute_performance_by_position(
+        strategy_returns,
+        positions
+    )
+
+    assert result.loc["long", "count"] == 3
+    assert result.loc["short", "count"] == 2
+    assert result.loc["flat", "count"] == 1
+
+    assert result.loc["long", "sum"] == pytest.approx(0.06)
+    assert result.loc["short", "sum"] == pytest.approx(-0.03)
+    assert result.loc["flat", "sum"] == pytest.approx(0.00)
+
+def test_attribute_performance_by_month():
+
+    dates = pd.to_datetime([
+        "2025-01-01",
+        "2025-01-02",
+        "2025-01-03",
+        "2025-02-01",
+        "2025-02-02"
+    ])
+
+    strategy_returns = pd.Series(
+        [
+            0.01,
+            0.02,
+            0.01,
+            -0.02,
+            0.01
+        ],
+        index=dates
+    )
+
+    result = attribute_performance_by_month(
+        strategy_returns
+    )
+
+    assert len(result) == 2
+
+    assert result.loc[pd.Period("2025-01"), "count"] == 3
+    assert result.loc[pd.Period("2025-02"), "count"] == 2
+
+    assert result.loc[pd.Period("2025-01"), "sum"] == pytest.approx(0.04)
+
+    assert result.loc[pd.Period("2025-02"), "sum"] == pytest.approx(-0.01)
+
+def test_attribute_performance_by_asset():
+
+    asset_strategy_returns = pd.DataFrame({
+        "AAPL": [0.01, 0.02, -0.01],
+        "MSFT": [0.00, -0.01, 0.02],
+        "GOOG": [0.02, 0.00, 0.01]
+    })
+
+    result = attribute_performance_by_asset(
+        asset_strategy_returns
+    )
+
+    assert result.loc["AAPL", "count"] == 3
+    assert result.loc["MSFT", "count"] == 3
+
+    assert result.loc["AAPL", "sum"] == pytest.approx(0.02)
+    assert result.loc["MSFT", "sum"] == pytest.approx(0.01)
+    assert result.loc["GOOG", "sum"] == pytest.approx(0.03)
+
+    assert result.loc["AAPL", "mean"] == pytest.approx(
+        0.02 / 3
+    )
+
+def test_run_performance_attribution():
+
+    dates = pd.to_datetime([
+        "2025-01-01",
+        "2025-01-02",
+        "2025-02-01",
+        "2025-02-02"
+    ])
+
+    strategy_returns = pd.Series(
+        [0.01, 0.02, -0.01, 0.03],
+        index=dates
+    )
+
+    positions = pd.Series(
+        [1, 1, -1, 1],
+        index=dates
+    )
+
+    asset_strategy_returns = pd.DataFrame(
+        {
+            "AAPL": [0.01, 0.01, -0.01, 0.02],
+            "MSFT": [0.00, 0.01, 0.00, 0.01]
+        },
+        index=dates
+    )
+
+    result = run_performance_attribution(
+        strategy_returns,
+        positions,
+        asset_strategy_returns
+    )
+
+    assert "position_attribution" in result
+    assert "monthly_attribution" in result
+    assert "asset_attribution" in result
+
+    assert "long" in result["position_attribution"].index
+    assert "short" in result["position_attribution"].index
+
+    assert pd.Period("2025-01") in result["monthly_attribution"].index
+    assert pd.Period("2025-02") in result["monthly_attribution"].index
+
+    assert "AAPL" in result["asset_attribution"].index
+    assert "MSFT" in result["asset_attribution"].index
+
+def test_run_performance_attribution_without_assets():
+
+    dates = pd.to_datetime([
+        "2025-01-01",
+        "2025-01-02"
+    ])
+
+    strategy_returns = pd.Series(
+        [0.01, 0.02],
+        index=dates
+    )
+
+    positions = pd.Series(
+        [1, 1],
+        index=dates
+    )
+
+    result = run_performance_attribution(
+        strategy_returns,
+        positions
+    )
+
+    assert result["asset_attribution"] is None

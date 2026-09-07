@@ -23,12 +23,7 @@ def calculate_pca_stability(folds):
             previous_component = previous_components[component_index]
             current_component = current_components[component_index]
 
-            similarity = abs(
-                np.dot(
-                    previous_component,
-                    current_component
-                )
-            )
+            similarity = abs(np.dot(previous_component,current_component))
 
             similarities.append(similarity)
 
@@ -58,12 +53,7 @@ def calculate_pca_stability_to_initial(folds):
 
             current_component = current_components[component_index]
 
-            similarity = abs(
-                np.dot(
-                    initial_component,
-                    current_component
-                )
-            )
+            similarity = abs(np.dot(initial_component,current_component))
 
             similarities.append(similarity)
 
@@ -135,21 +125,13 @@ def walk_forward_mean_reversion(data, initial_train_size, test_size, window, thr
 
 def calculate_signal_disagreement(fixed_signals, refitted_signals):
 
-    fixed = fixed_signals.loc[
-        refitted_signals.index,
-        refitted_signals.columns
-    ]
+    fixed = fixed_signals.loc[refitted_signals.index, refitted_signals.columns]
 
     disagreement = fixed != refitted_signals
 
-    overall_disagreement_rate = (
-        disagreement.sum().sum()
-        / disagreement.size
-    )
+    overall_disagreement_rate = (disagreement.sum().sum() / disagreement.size)
 
-    daily_disagreement_rate = (
-        disagreement.any(axis=1).mean()
-    )
+    daily_disagreement_rate = (disagreement.any(axis=1).mean())
 
     per_symbol_disagreement = disagreement.mean()
 
@@ -252,14 +234,9 @@ def run_validation_comparison(train_prices,validation_prices,mean_symbol,candida
     window,threshold,n_components):
 
     # 1. Pair screening using TRAIN only
-    screening_results = screen_pairs(
-        train_prices,
-        candidate_pairs
-    )
+    screening_results = screen_pairs(train_prices,candidate_pairs)
 
-    selected_pairs = select_pairs(
-        screening_results
-    )
+    selected_pairs = select_pairs(screening_results)
 
     if selected_pairs.empty:
 
@@ -267,69 +244,30 @@ def run_validation_comparison(train_prices,validation_prices,mean_symbol,candida
 
     else:
 
-        pair_result = run_best_pair_validation(
-            train_prices,
-            validation_prices,
-            selected_pairs,
-            window,
-            threshold
-        )
+        pair_result = run_best_pair_validation(train_prices,validation_prices,selected_pairs,window,threshold)
 
     # 2. Mean reversion
-    mean_train = pd.DataFrame({
-        "Close": train_prices[mean_symbol]
-    })
+    mean_train = pd.DataFrame({"Close": train_prices[mean_symbol]})
 
-    mean_validation = pd.DataFrame({
-        "Close": validation_prices[mean_symbol]
-    })
+    mean_validation = pd.DataFrame({"Close": validation_prices[mean_symbol]})
 
-    mean_result = run_mean_reversion_with_history(
-        mean_validation,
-        mean_train,
-        window,
-        threshold
-    )
+    mean_result = run_mean_reversion_with_history(mean_validation,mean_train,window,threshold)
 
     # 4. PCA train returns
-    pca_train_returns = (
-        train_prices[pca_symbols]
-        .pct_change()
-        .dropna()
-    )
+    pca_train_returns = (train_prices[pca_symbols].pct_change().dropna())
 
-    pca = fit_pca(
-        pca_train_returns,
-        n_components
-    )
+    pca = fit_pca(pca_train_returns,n_components)
 
     # 5. PCA validation returns
-    combined_prices = pd.concat([
-        train_prices[pca_symbols].iloc[-1:],
-        validation_prices[pca_symbols]
-    ])
+    combined_prices = pd.concat([train_prices[pca_symbols].iloc[-1:],validation_prices[pca_symbols]])
 
-    pca_validation_returns = (
-        combined_prices
-        .pct_change()
-        .iloc[1:]
-    )
+    pca_validation_returns = (combined_prices.pct_change().iloc[1:])
 
     # 6. PCA strategy
-    pca_result = run_pca_stat_arb(
-        pca_validation_returns,
-        pca_train_returns,
-        pca,
-        window,
-        threshold
-    )
+    pca_result = run_pca_stat_arb(pca_validation_returns,pca_train_returns,pca,window,threshold)
 
     # 7. Comparison
-    comparison = build_strategy_comparison(
-        mean_result,
-        pair_result,
-        pca_result
-    )
+    comparison = build_strategy_comparison(mean_result,pair_result,pca_result)
 
     return {
         "comparison": comparison,
@@ -338,4 +276,268 @@ def run_validation_comparison(train_prices,validation_prices,mean_symbol,candida
         "pca_result": pca_result,
         "screening_results": screening_results,
         "selected_pairs": selected_pairs
+    }
+
+def tune_mean_reversion(train_data, validation_data, windows, thresholds):
+
+    results = []
+
+    for window in windows:
+
+        for threshold in thresholds:
+
+            result = run_mean_reversion_with_history(validation_data,train_data,window,threshold)
+
+            summary = performance_summary(result["strategy_return"])
+
+            results.append({
+                "window": window,
+                "threshold": threshold,
+                **summary
+            })
+
+    return pd.DataFrame(results)
+
+def select_best_mean_reversion_parameters(tuning_results):
+
+    best_index = tuning_results["Sharpe Ratio"].idxmax()
+
+    best_row = tuning_results.loc[best_index]
+
+    return {
+        "window": int(best_row["window"]),
+        "threshold": float(best_row["threshold"])
+    }
+
+def evaluate_mean_reversion_on_test(train_data,validation_data,test_data,best_parameters):
+
+    historical_data = pd.concat([train_data,validation_data])
+
+    result = run_mean_reversion_with_history(test_data,historical_data,best_parameters["window"],
+                                             best_parameters["threshold"])
+
+    return result
+
+def run_mean_reversion_research(train_data,validation_data,test_data,windows,thresholds):
+
+    tuning_results = tune_mean_reversion(train_data,validation_data,windows,thresholds)
+
+    best_parameters = select_best_mean_reversion_parameters(tuning_results)
+
+    test_result = evaluate_mean_reversion_on_test(train_data,validation_data,test_data,best_parameters)
+
+    test_performance = performance_summary(test_result["strategy_return"])
+
+    return {
+        "tuning_results": tuning_results,
+        "best_parameters": best_parameters,
+        "test_result": test_result,
+        "test_performance": test_performance
+    }
+
+def build_parameter_surface(tuning_results, metric="Sharpe Ratio"):
+
+    return tuning_results.pivot(index="window", columns="threshold", values=metric)
+
+def calculate_local_robustness(tuning_results,metric="Sharpe Ratio"):
+
+    surface = build_parameter_surface(tuning_results, metric)
+
+    row, col = np.unravel_index(np.nanargmax(surface.values), surface.shape)
+
+    row_start = max(0, row - 1)
+    row_end = min(surface.shape[0], row + 2)
+
+    col_start = max(0, col - 1)
+    col_end = min(surface.shape[1], col + 2)
+
+    neighborhood = surface.iloc[row_start:row_end, col_start:col_end].copy()
+
+    best_value = surface.iloc[row, col]
+
+    # best point 在 neighborhood 里的相对位置
+    local_row = row - row_start
+    local_col = col - col_start
+
+    neighbor_values = neighborhood.values.copy()
+    neighbor_values[local_row, local_col] = np.nan
+
+    neighbor_values = neighbor_values[~np.isnan(neighbor_values)]
+
+    return {
+        "best_window": int(surface.index[row]),
+        "best_threshold": float(surface.columns[col]),
+        "best_metric": best_value,
+        "neighbor_mean": neighbor_values.mean(),
+        "neighbor_std": neighbor_values.std(),
+        "performance_drop": best_value - neighbor_values.mean()
+    }
+
+def is_parameter_robust(robustness_result, max_performance_drop=0.3, max_neighbor_std=0.3):
+
+    return bool(
+        robustness_result["performance_drop"] <= max_performance_drop
+        and
+        robustness_result["neighbor_std"] <= max_neighbor_std
+    )
+
+def summarize_parameter_robustness(tuning_results, metric="Sharpe Ratio", max_performance_drop=0.3,
+                                    max_neighbor_std=0.3):
+
+    robustness = calculate_local_robustness(tuning_results, metric)
+
+    robustness["robust"] = is_parameter_robust(robustness, max_performance_drop, max_neighbor_std)
+
+    return robustness
+
+def apply_transaction_costs(strategy_returns, positions, cost_rate):
+
+    if cost_rate < 0:
+        raise ValueError("cost_rate must be non-negative")
+
+    positions_used = positions.fillna(0)
+
+    turnover = positions_used.diff().abs()
+
+    turnover.iloc[0] = abs(positions_used.iloc[0])
+
+    costs = turnover * cost_rate
+
+    net_returns = strategy_returns - costs
+
+    return pd.DataFrame({
+        "strategy_return": strategy_returns,
+        "position": positions,
+        "turnover": turnover,
+        "cost": costs,
+        "net_strategy_return": net_returns
+    })
+
+def run_cost_sensitivity(strategy_returns, positions, cost_rates):
+
+    results = []
+
+    for cost_rate in cost_rates:
+
+        net_result = apply_transaction_costs(strategy_returns, positions, cost_rate)
+
+        summary = performance_summary(net_result["net_strategy_return"])
+
+        results.append({"cost_rate": cost_rate, **summary})
+
+    return pd.DataFrame(results)
+
+def find_break_even_cost(cost_sensitivity_results):
+
+    unprofitable = cost_sensitivity_results[cost_sensitivity_results["Total Return"] <= 0]
+
+    if unprofitable.empty:
+        return None
+
+    return unprofitable["cost_rate"].min()
+
+def classify_volatility_regime(returns,window,volatility_threshold):
+
+    rolling_volatility = (returns.rolling(window).std().shift(1))
+
+    regime = pd.Series(index=returns.index, dtype="object")
+
+    regime[rolling_volatility <= volatility_threshold] = "calm"
+    regime[rolling_volatility > volatility_threshold] = "volatile"
+
+    return pd.DataFrame({
+        "returns": returns,
+        "rolling_volatility": rolling_volatility,
+        "regime": regime
+    })
+
+def compare_performance_by_regime(strategy_returns, regimes):
+
+    results = {}
+
+    for regime_name in ["calm", "volatile"]:
+
+        mask = regimes == regime_name
+
+        regime_returns = strategy_returns[mask]
+
+        if regime_returns.empty:
+            continue
+
+        results[regime_name] = performance_summary(regime_returns)
+
+    return pd.DataFrame(results).T
+
+def run_regime_analysis(market_returns, strategy_returns, window, volatility_threshold):
+
+    regime_result = classify_volatility_regime(market_returns, window, volatility_threshold)
+
+    comparison = compare_performance_by_regime(strategy_returns, regime_result["regime"])
+
+    return {
+        "regime_result": regime_result,
+        "comparison": comparison
+    }
+
+def attribute_performance_by_position(strategy_returns, positions):
+
+    data = pd.DataFrame({
+        "strategy_return": strategy_returns,
+        "position": positions
+    })
+
+    data["position_bucket"] = data["position"].map({
+        1: "long",
+        0: "flat",
+        -1: "short"
+    })
+
+    result = (data.groupby("position_bucket")["strategy_return"].agg(["count", "sum", "mean"]))
+
+    return result
+
+def attribute_performance_by_month(strategy_returns):
+
+    data = pd.DataFrame({"strategy_return": strategy_returns})
+
+    data["month"] = data.index.to_period("M")
+
+    result = (data.groupby("month")["strategy_return"].agg(["count", "sum", "mean"]))
+
+    return result
+
+def attribute_performance_by_asset(asset_strategy_returns):
+
+    results = []
+
+    for symbol in asset_strategy_returns.columns:
+
+        returns = asset_strategy_returns[symbol]
+
+        results.append({
+            "symbol": symbol,
+            "count": returns.count(),
+            "sum": returns.sum(),
+            "mean": returns.mean()
+        })
+
+    return pd.DataFrame(results).set_index("symbol")
+
+def run_performance_attribution(strategy_returns, positions, asset_strategy_returns=None):
+
+    position_attribution = attribute_performance_by_position(strategy_returns, positions)
+
+    monthly_attribution = attribute_performance_by_month(strategy_returns)
+
+    if asset_strategy_returns is not None:
+
+        asset_attribution = attribute_performance_by_asset(asset_strategy_returns)
+
+    else:
+        asset_attribution = None
+
+    return {
+        "position_attribution": position_attribution,
+        "monthly_attribution": monthly_attribution,
+        "asset_attribution": asset_attribution
     }
