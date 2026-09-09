@@ -9,8 +9,12 @@ from .strategy import (
 
 def build_strategy(
     strategy_name,
-    symbols=None
+    symbols=None,
+    config=None
 ):
+
+    if config is None:
+        config = {}
 
     strategy_name = (
         strategy_name
@@ -28,9 +32,21 @@ def build_strategy(
     if strategy_name == "momentum":
 
         return MomentumTradingStrategy(
-            lookback=20,
-            target_weight=0.01,
-            allow_short=False
+
+            lookback=config.get(
+                "lookback",
+                20
+            ),
+
+            target_weight=config.get(
+                "target_weight",
+                0.01
+            ),
+
+            allow_short=config.get(
+                "allow_short",
+                False
+            )
         )
 
 

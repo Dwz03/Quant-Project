@@ -101,19 +101,35 @@ def main():
         "momentum"
     )
 
+    strategy_config = {
+
+        "lookback": int(
+            os.getenv(
+                "STRATEGY_LOOKBACK",
+                "20"
+            )
+        ),
+
+        "target_weight": float(
+            os.getenv(
+                "STRATEGY_TARGET_WEIGHT",
+                "0.01"
+            )
+        ),
+
+        "allow_short": (
+            os.getenv(
+                "STRATEGY_ALLOW_SHORT",
+                "false"
+            ).lower()
+            == "true"
+        )
+    }
+
     strategy = build_strategy(
         strategy_name,
-        symbols=symbols
-    )
-
-
-    strategy_name = os.getenv(
-        "STRATEGY_NAME",
-        "momentum"
-    )
-
-    strategy = build_strategy(
-        strategy_name
+        symbols=symbols,
+        config=strategy_config
     )
 
 
@@ -198,12 +214,7 @@ def main():
         "Paper mode only."
     )
 
-    result = (
-        paper_engine
-        .run_scheduled_step()
-    )
-
-    print(result)
+    paper_engine.run_forever()
 
 
 if __name__ == "__main__":
