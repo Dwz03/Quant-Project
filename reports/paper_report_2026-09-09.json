@@ -1,0 +1,33 @@
+{
+    "generated_at": "2026-09-09T05:20:00.149170+00:00",
+    "account": {
+        "equity": 100000.0,
+        "last_equity": 100000.0,
+        "daily_pnl": 0.0,
+        "daily_return": 0.0,
+        "cash": 100000.0,
+        "buying_power": 400000.0
+    },
+    "positions": [],
+    "orders": [
+        {
+            "id": "ba840d91-a56d-407c-a1a3-4800211fd60a",
+            "client_order_id": "d2453d2f-563f-409e-8eba-ff14a73f805e",
+            "symbol": "AAPL",
+            "side": "buy",
+            "quantity": 1.0,
+            "filled_quantity": 0.0,
+            "status": "canceled"
+        },
+        {
+            "id": "cd011cdd-721f-4b65-8d35-9f93e58975f9",
+            "client_order_id": "990ee995-729c-4a81-94d3-2e9c92aad097",
+            "symbol": "AAPL",
+            "side": "buy",
+            "quantity": 1.0,
+            "filled_quantity": 0.0,
+            "status": "canceled"
+        }
+    ],
+    "errors": []
+}
