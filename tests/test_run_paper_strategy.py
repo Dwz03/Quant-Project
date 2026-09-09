@@ -4,7 +4,7 @@ from src.rebalancer import Rebalancer
 from src.risk_manager import RiskManager
 from src.execution import ExecutionHandler
 from src.trading_engine import TradingEngine
-
+from src.strategy_factory import build_strategy
 import pandas as pd
 import numpy as np
 import pytest
@@ -107,6 +107,12 @@ def test_pairs_strategy_end_to_end_broker_cycle():
 
         def __init__(self):
             self.submitted = []
+
+        def can_short(
+            self,
+            symbol
+        ):
+            return True
 
         def submit_order(self, order):
 
@@ -273,6 +279,12 @@ def test_pca_strategy_end_to_end_broker_cycle():
         def __init__(self):
             self.submitted = []
 
+        def can_short(
+            self,
+            symbol
+        ):
+            return True
+
         def submit_order(self, order):
 
             self.submitted.append(order)
@@ -361,3 +373,88 @@ def test_pca_strategy_end_to_end_broker_cycle():
     assert len(
         broker.submitted
     ) >= 2
+
+
+def test_build_momentum_strategy():
+
+    strategy = build_strategy(
+        "momentum"
+    )
+
+    assert (
+        strategy.name
+        == "Momentum"
+    )
+
+def test_unknown_strategy():
+
+    with pytest.raises(
+        ValueError
+    ):
+
+        build_strategy(
+            "random_strategy"
+        )
+
+def test_build_pairs_strategy():
+
+    strategy = build_strategy(
+        "pairs",
+        symbols=[
+            "AAPL",
+            "MSFT"
+        ]
+    )
+
+    assert (
+        strategy.name
+        == "Pairs Trading"
+    )
+
+    assert (
+        strategy.symbol_1
+        == "AAPL"
+    )
+
+    assert (
+        strategy.symbol_2
+        == "MSFT"
+    )
+
+def test_build_pca_strategy():
+
+    strategy = build_strategy(
+        "pca",
+        symbols=[
+            "AAPL",
+            "MSFT",
+            "GOOG"
+        ]
+    )
+
+    assert (
+        strategy.name
+        == "PCA Residual Stat Arb"
+    )
+
+    assert (
+        strategy.n_components
+        == 1
+    )
+
+    assert (
+        strategy.target_gross_exposure
+        == 0.01
+    )
+
+def test_pairs_requires_two_symbols():
+
+    with pytest.raises(
+        ValueError
+    ):
+
+        build_strategy(
+            "pairs",
+            symbols=["AAPL"]
+        )
+        

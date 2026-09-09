@@ -147,3 +147,446 @@ def test_alpaca_broker_get_positions_and_clock():
     ]
 
     assert broker.get_clock() == "test-clock"
+
+def test_alpaca_broker_passes_client_order_id():
+
+    from src.order import Order
+
+
+    class FakeBrokerOrder:
+
+        id = "broker-order-123"
+
+
+    class FakeClient:
+
+        def __init__(self):
+
+            self.request = None
+
+
+        def get_order_by_client_id(
+            self,
+            client_order_id
+        ):
+
+            from requests import (
+                HTTPError,
+                Response
+            )
+
+            from alpaca.common.exceptions import (
+                APIError
+            )
+
+            response = Response()
+
+            response.status_code = 404
+
+            http_error = HTTPError(
+                response=response
+            )
+
+            raise APIError(
+                (
+                    '{"code":40410000,'
+                    '"message":"order not found"}'
+                ),
+                http_error
+            )
+
+
+        def submit_order(
+            self,
+            order_data
+        ):
+
+            self.request = order_data
+
+            return FakeBrokerOrder()
+
+
+    broker = (
+        AlpacaPaperBroker
+        .__new__(
+            AlpacaPaperBroker
+        )
+    )
+
+    broker.client = FakeClient()
+
+
+    order = Order(
+        symbol="AAPL",
+        quantity=10,
+        side="BUY",
+        client_order_id=(
+            "qt-20260909-test123"
+        )
+    )
+
+
+    result = broker.submit_order(
+        order
+    )
+
+
+    assert (
+        result
+        == "broker-order-123"
+    )
+
+    assert (
+        broker.client
+        .request
+        .client_order_id
+        == "qt-20260909-test123"
+    )
+
+def test_can_short():
+
+    class FakeAccount:
+
+        shorting_enabled = True
+
+
+    class FakeAsset:
+
+        tradable = True
+        shortable = True
+
+
+    class FakeClient:
+
+        def get_account(self):
+
+            return FakeAccount()
+
+
+        def get_asset(
+            self,
+            symbol
+        ):
+
+            return FakeAsset()
+
+
+    broker = (
+        AlpacaPaperBroker
+        .__new__(
+            AlpacaPaperBroker
+        )
+    )
+
+    broker.client = FakeClient()
+
+
+    assert (
+        broker.can_short(
+            "AAPL"
+        )
+        is True
+    )
+
+def test_cannot_short_unshortable_asset():
+
+    class FakeAccount:
+
+        shorting_enabled = True
+
+
+    class FakeAsset:
+
+        tradable = True
+        shortable = False
+
+
+    class FakeClient:
+
+        def get_account(self):
+
+            return FakeAccount()
+
+
+        def get_asset(
+            self,
+            symbol
+        ):
+
+            return FakeAsset()
+
+
+    broker = (
+        AlpacaPaperBroker
+        .__new__(
+            AlpacaPaperBroker
+        )
+    )
+
+    broker.client = FakeClient()
+
+
+    assert (
+        broker.can_short(
+            "AAPL"
+        )
+        is False
+    )
+
+def test_existing_client_order_id_is_not_resubmitted():
+
+    from src.order import Order
+
+
+    class FakeExistingOrder:
+
+        id = "existing-order-123"
+
+
+    class FakeClient:
+
+        def __init__(self):
+
+            self.submit_count = 0
+
+
+        def get_order_by_client_id(
+            self,
+            client_order_id
+        ):
+
+            assert (
+                client_order_id
+                == "qt-20260909-test123"
+            )
+
+            return FakeExistingOrder()
+
+
+        def submit_order(
+            self,
+            order_data
+        ):
+
+            self.submit_count += 1
+
+            raise AssertionError(
+                "submit_order should not "
+                "be called"
+            )
+
+
+    broker = (
+        AlpacaPaperBroker
+        .__new__(
+            AlpacaPaperBroker
+        )
+    )
+
+    broker.client = FakeClient()
+
+
+    order = Order(
+        symbol="AAPL",
+        quantity=10,
+        side="BUY",
+        client_order_id=(
+            "qt-20260909-test123"
+        )
+    )
+
+
+    result = broker.submit_order(
+        order
+    )
+
+
+    assert (
+        result
+        == "existing-order-123"
+    )
+
+    assert (
+        broker.client.submit_count
+        == 0
+    )
+
+def test_missing_client_order_id_submits_new_order():
+
+    from requests import (
+        HTTPError,
+        Response
+    )
+
+    from alpaca.common.exceptions import (
+        APIError
+    )
+
+    from src.order import Order
+
+
+    class FakeSubmittedOrder:
+
+        id = "new-order-456"
+
+
+    class FakeClient:
+
+        def __init__(self):
+
+            self.submit_count = 0
+
+
+        def get_order_by_client_id(
+            self,
+            client_order_id
+        ):
+
+            response = Response()
+
+            response.status_code = 404
+
+            http_error = HTTPError(
+                response=response
+            )
+
+            raise APIError(
+                (
+                    '{"code":40410000,'
+                    '"message":"order not found"}'
+                ),
+                http_error
+            )
+
+
+        def submit_order(
+            self,
+            order_data
+        ):
+
+            self.submit_count += 1
+
+            return FakeSubmittedOrder()
+
+
+    broker = (
+        AlpacaPaperBroker
+        .__new__(
+            AlpacaPaperBroker
+        )
+    )
+
+    broker.client = FakeClient()
+
+
+    order = Order(
+        "AAPL",
+        10,
+        "BUY",
+        client_order_id=(
+            "qt-20260909-new123"
+        )
+    )
+
+
+    result = broker.submit_order(
+        order
+    )
+
+
+    assert (
+        result
+        == "new-order-456"
+    )
+
+    assert (
+        broker.client.submit_count
+        == 1
+    )
+
+def test_non_404_api_error_is_not_ignored():
+
+    from requests import (
+        HTTPError,
+        Response
+    )
+
+    from alpaca.common.exceptions import (
+        APIError
+    )
+
+    from src.order import Order
+
+
+    class FakeClient:
+
+        def __init__(self):
+
+            self.submit_count = 0
+
+
+        def get_order_by_client_id(
+            self,
+            client_order_id
+        ):
+
+            response = Response()
+
+            response.status_code = 500
+
+            http_error = HTTPError(
+                response=response
+            )
+
+            raise APIError(
+                (
+                    '{"code":50010000,'
+                    '"message":"server error"}'
+                ),
+                http_error
+            )
+
+
+        def submit_order(
+            self,
+            order_data
+        ):
+
+            self.submit_count += 1
+
+            return None
+
+
+    broker = (
+        AlpacaPaperBroker
+        .__new__(
+            AlpacaPaperBroker
+        )
+    )
+
+    broker.client = FakeClient()
+
+
+    order = Order(
+        "AAPL",
+        10,
+        "BUY",
+        client_order_id=(
+            "qt-20260909-test"
+        )
+    )
+
+
+    with pytest.raises(
+        APIError
+    ):
+
+        broker.submit_order(
+            order
+        )
+
+
+    assert (
+        broker.client.submit_count
+        == 0
+    )

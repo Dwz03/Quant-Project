@@ -1,10 +1,10 @@
-from datetime import datetime, timezone, timedelta
-
 import os
-import pandas as pd
+
 from dotenv import load_dotenv
 
-from alpaca.data.historical.stock import StockHistoricalDataClient
+from alpaca.data.historical.stock import (
+    StockHistoricalDataClient
+)
 
 from src.alpaca_broker import AlpacaPaperBroker
 from src.market_data import AlpacaMarketDataAdapter
@@ -13,135 +13,123 @@ from src.risk_manager import RiskManager
 from src.execution import ExecutionHandler
 from src.rebalancer import Rebalancer
 from src.trading_engine import TradingEngine
-from src.strategy import MeanReversionTradingStrategy
+from src.paper_trading_engine import PaperTradingEngine
+
+from src.strategy_factory import (
+    build_strategy
+)
 
 
 def main():
 
-    # -------------------------
-    # 1. Broker
-    # -------------------------
+    # ==================================
+    # 1. Alpaca Broker
+    # ==================================
 
     broker = AlpacaPaperBroker()
 
-    clock = broker.get_clock()
 
-    print("Market open:", clock.is_open)
+    # ==================================
+    # 2. Alpaca Market Data
+    # ==================================
 
-    market_open = clock.is_open
+    load_dotenv()
 
-    if not market_open:
-        print("Market is closed.")
-        print("Running strategy in dry-run mode.")
+    api_key = os.getenv(
+        "ALPACA_API_KEY"
+    )
 
-    # -------------------------
-    # 2. Account
-    # -------------------------
+    secret_key = os.getenv(
+        "ALPACA_SECRET_KEY"
+    )
+
+    if not api_key or not secret_key:
+
+        raise ValueError(
+            "Alpaca API credentials "
+            "are missing"
+        )
+
+
+    data_client = (
+        StockHistoricalDataClient(
+            api_key,
+            secret_key
+        )
+    )
+
+    market_data = (
+        AlpacaMarketDataAdapter(
+            data_client
+        )
+    )
+
+
+    # ==================================
+    # 3. Portfolio
+    # ==================================
 
     account = broker.get_account()
-
-    broker_positions = broker.get_positions()
 
     portfolio = Portfolio(
         float(account.equity)
     )
 
-    portfolio.sync_from_broker(
-        account,
-        broker_positions
+    # Actual cash/positions will be
+    # synchronised by PaperTradingEngine.
+
+
+    # ==================================
+    # 4. Strategy
+    # ==================================
+
+    symbols_text = os.getenv(
+        "SYMBOLS",
+        "AAPL,MSFT,GOOG"
     )
 
-    print("Paper equity:", float(account.equity))
-    print("Paper cash:", portfolio.cash)
-
-    print("Synced positions:")
-
-    for symbol, position in portfolio.positions.items():
-        print(
-            symbol,
-            position.quantity,
-            position.average_cost
-        )
-
-    # -------------------------
-    # 3. Market data client
-    # -------------------------
-
-    load_dotenv()
-
-    api_key = os.getenv("ALPACA_API_KEY")
-    secret_key = os.getenv("ALPACA_SECRET_KEY")
-
-    data_client = StockHistoricalDataClient(
-        api_key,
-        secret_key
-    )
-
-    market_data = AlpacaMarketDataAdapter(
-        data_client
-    )
-
-    # -------------------------
-    # 4. Historical data
-    # -------------------------
-
-    symbol = "AAPL"
-
-    now = datetime.now(timezone.utc)
-
-    history = market_data.get_history(
-        [symbol],
-        start=now - timedelta(days=60),
-        end=now
-    )
-
-    if market_open:
-
-        latest_price = market_data.get_latest_price(
-            symbol
-        )
-
-        history.loc[now, symbol] = latest_price
-
-    else:
-
-        latest_price = history[symbol].iloc[-1]
-
-        print(
-            "Using last historical close:",
-            latest_price
-        )
-
-    print(history.tail())
-
-    # -------------------------
-    # 6. Strategy
-    # -------------------------
-
-    strategy = MeanReversionTradingStrategy(
-        window=20,
-        target_weight=0.10,
-        max_gross_exposure=0.10,
-        allow_short=False
-    )
-    historical_window = history[symbol].iloc[
-        -strategy.window - 1:-1
+    symbols = [
+        symbol.strip().upper()
+        for symbol
+        in symbols_text.split(",")
+        if symbol.strip()
     ]
 
-    historical_mean = historical_window.mean()
-    current_price = history[symbol].iloc[-1]
 
-    print("Strategy diagnostics:")
-    print("Current price:", current_price)
-    print("Historical mean:", historical_mean)
-    # -------------------------
-    # 7. Trading components
-    # -------------------------
+    strategy_name = os.getenv(
+        "STRATEGY_NAME",
+        "momentum"
+    )
+
+    strategy = build_strategy(
+        strategy_name,
+        symbols=symbols
+    )
+
+
+    strategy_name = os.getenv(
+        "STRATEGY_NAME",
+        "momentum"
+    )
+
+    strategy = build_strategy(
+        strategy_name
+    )
+
+
+    # ==================================
+    # 5. Risk
+    # ==================================
 
     risk_manager = RiskManager(
-        max_position_pct=0.10,
+        max_position_pct=0.02,
         max_leverage=1.0
     )
+
+
+    # ==================================
+    # 6. Execution / Rebalancer
+    # ==================================
 
     execution = ExecutionHandler(
         commission_rate=0.0,
@@ -150,7 +138,12 @@ def main():
 
     rebalancer = Rebalancer()
 
-    engine = TradingEngine(
+
+    # ==================================
+    # 7. Trading Engine
+    # ==================================
+
+    trading_engine = TradingEngine(
         portfolio,
         risk_manager,
         execution,
@@ -159,126 +152,58 @@ def main():
         broker=broker
     )
 
-    # -------------------------
-    # 8. Run ONE strategy cycle
-    # -------------------------
 
-    if market_open:
+    # ==================================
+    # 8. Paper Trading Engine
+    # ==================================
 
-        result = engine.run_broker_cycle(history)
+    paper_engine = (
+        PaperTradingEngine(
+            broker=broker,
+            market_data=market_data,
+            trading_engine=trading_engine,
+            symbols=symbols,
 
-        print("LIVE PAPER MODE")
+            lookback_days=90,
 
-        print("Target weights:")
-        print(result["target_weights"])
+            # Daily strategy runs once
+            # during the final 15 min.
+            minutes_before_close=15,
 
-        print("Orders:")
-
-        for order in result["orders"]:
-            print(
-                order.symbol,
-                order.side,
-                order.quantity
-            )
-
-        order_ids = result["submitted_orders"]
-
-        print("Submitted order IDs:")
-        print(order_ids)
-
-
-        # -------------------------
-        # Wait for fills
-        # -------------------------
-
-        if order_ids:
-
-            order_updates = engine.wait_for_orders(
-                order_ids,
-                timeout=30,
-                poll_interval=1
-            )
-
-            print("Order updates:")
-
-            for update in order_updates:
-                print(update)
-
-            print("Synced portfolio:")
-
-            print("Cash:", portfolio.cash)
-
-            for symbol, position in portfolio.positions.items():
-
-                print(
-                    symbol,
-                    position.quantity,
-                    position.average_cost
-                )
-
-        else:
-
-            print("No orders submitted.")
-
-        print("LIVE PAPER MODE")
-
-        print("Target weights:")
-        print(result["target_weights"])
-
-        print("Orders:")
-
-        for order in result["orders"]:
-            print(
-                order.symbol,
-                order.side,
-                order.quantity
-            )
-
-        print("Submitted order IDs:")
-        print(result["submitted_orders"])
-
-    else:
-
-        target_weights = (
-            strategy.generate_target_weights(history)
+            # Check scheduler every minute.
+            poll_interval_seconds=60
         )
-
-        prices = history.iloc[-1].to_dict()
-
-        orders = rebalancer.generate_orders(
-            target_weights,
-            portfolio,
-            prices
-        )
-
-        approved_orders = []
-
-        for order in orders:
-
-            if risk_manager.check_order(
-                order,
-                portfolio,
-                prices
-            ):
-                approved_orders.append(order)
-
-        print("DRY RUN")
-
-        print("Target weights:")
-        print(target_weights)
-
-        print("Approved orders:")
-
-        for order in approved_orders:
-            print(
-                order.symbol,
-                order.side,
-                order.quantity
-            )
-
-        print("No orders submitted.")
+    )
 
 
+    # ==================================
+    # 9. Start Bot
+    # ==================================
+
+    print(
+        "Starting Alpaca paper bot..."
+    )
+
+    print(
+        "Strategy:",
+        strategy.name
+    )
+
+    print(
+        "Symbols:",
+        symbols
+    )
+
+    print(
+        "Paper mode only."
+    )
+
+    result = (
+        paper_engine
+        .run_scheduled_step()
+    )
+
+    print(result)
 
 
 if __name__ == "__main__":

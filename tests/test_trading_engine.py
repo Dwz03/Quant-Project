@@ -3,7 +3,9 @@ from src.risk_manager import RiskManager
 from src.execution import ExecutionHandler
 from src.rebalancer import Rebalancer
 from src.trading_engine import TradingEngine
-from src.strategy import MomentumStrategy, MeanReversionTradingStrategy
+from src.strategy import MomentumStrategy, MeanReversionTradingStrategy, MomentumTradingStrategy
+from src.position import Position
+from src.order import Order
 import pytest
 import pandas as pd
 
@@ -329,3 +331,342 @@ def test_wait_for_orders_until_filled(monkeypatch):
     )
 
     assert portfolio.cash == 8995
+
+def test_client_order_id_is_deterministic():
+
+    portfolio = Portfolio(10000)
+
+    strategy = MomentumTradingStrategy(
+        lookback=2,
+        target_weight=0.10
+    )
+
+    risk_manager = RiskManager(
+        max_position_pct=0.20,
+        max_leverage=1.0
+    )
+
+    execution = ExecutionHandler(
+        0.0,
+        0.0
+    )
+
+    rebalancer = Rebalancer()
+
+
+    class FakeBroker:
+
+        def __init__(self):
+            self.client_ids = []
+
+        def submit_order(
+            self,
+            order
+        ):
+
+            self.client_ids.append(
+                order.client_order_id
+            )
+
+            return "fake-order"
+
+
+    broker = FakeBroker()
+
+    engine = TradingEngine(
+        portfolio,
+        risk_manager,
+        execution,
+        rebalancer,
+        strategy,
+        broker=broker
+    )
+
+    history = pd.DataFrame({
+        "AAPL": [
+            100,
+            101,
+            105
+        ]
+    })
+
+
+    engine.run_broker_cycle(
+        history,
+        cycle_key="2026-09-09"
+    )
+
+    first_id = (
+        broker.client_ids[0]
+    )
+
+
+    engine.run_broker_cycle(
+        history,
+        cycle_key="2026-09-09"
+    )
+
+    second_id = (
+        broker.client_ids[1]
+    )
+
+
+    assert first_id == second_id
+
+    assert first_id.startswith(
+        "qt-20260909-"
+    )
+
+def test_unshortable_asset_is_not_submitted():
+
+    class FakeBroker:
+
+        def __init__(self):
+            self.submit_count = 0
+
+        def can_short(
+            self,
+            symbol
+        ):
+            return False
+
+        def submit_order(
+            self,
+            order
+        ):
+            self.submit_count += 1
+            return "fake-order"
+
+
+    portfolio = Portfolio(
+        10000
+    )
+
+    strategy = MomentumTradingStrategy(
+        lookback=2,
+        target_weight=0.10,
+        allow_short=True
+    )
+
+    risk_manager = RiskManager(
+        max_position_pct=0.20,
+        max_leverage=1.0
+    )
+
+    execution = ExecutionHandler(
+        0.0,
+        0.0
+    )
+
+    rebalancer = Rebalancer()
+
+    broker = FakeBroker()
+
+    engine = TradingEngine(
+        portfolio,
+        risk_manager,
+        execution,
+        rebalancer,
+        strategy,
+        broker=broker
+    )
+
+
+    # Falling price -> Momentum wants short
+    history = pd.DataFrame({
+        "AAPL": [
+            105,
+            102,
+            100
+        ]
+    })
+
+
+    result = engine.run_broker_cycle(
+        history,
+        cycle_key="2026-09-09"
+    )
+
+
+    assert len(
+        result["orders"]
+    ) == 1
+
+    assert (
+        result["orders"][0].side
+        == "SELL"
+    )
+
+    assert (
+        result["submitted_orders"]
+        == []
+    )
+
+    assert (
+        broker.submit_count
+        == 0
+    )
+
+def test_closing_long_does_not_require_shortability():
+
+    class FakeBroker:
+
+        def __init__(self):
+            self.submit_count = 0
+
+        def can_short(
+            self,
+            symbol
+        ):
+            return False
+
+        def submit_order(
+            self,
+            order
+        ):
+            self.submit_count += 1
+            return "fake-order"
+
+
+    portfolio = Portfolio(
+        10000
+    )
+
+    # Existing long position
+    portfolio.positions["AAPL"] = Position(
+        symbol="AAPL",
+        quantity=10,
+        average_cost=100
+    )
+
+    broker = FakeBroker()
+
+    strategy = MomentumTradingStrategy(
+        lookback=2,
+        target_weight=0.0,
+        allow_short=False
+    )
+
+    risk_manager = RiskManager(
+        max_position_pct=1.0,
+        max_leverage=1.0
+    )
+
+    execution = ExecutionHandler(
+        0.0,
+        0.0
+    )
+
+    rebalancer = Rebalancer()
+
+    engine = TradingEngine(
+        portfolio,
+        risk_manager,
+        execution,
+        rebalancer,
+        strategy,
+        broker=broker
+    )
+
+
+    history = pd.DataFrame({
+        "AAPL": [
+            100,
+            101,
+            102
+        ]
+    })
+
+
+    result = engine.run_broker_cycle(
+        history,
+        cycle_key="2026-09-09"
+    )
+
+
+    assert len(
+        result["orders"]
+    ) == 1
+
+    order = result["orders"][0]
+
+    assert (
+        order.side
+        == "SELL"
+    )
+
+    assert (
+        order.quantity
+        == 10
+    )
+
+    assert (
+        broker.submit_count
+        == 1
+    )
+
+def test_sell_beyond_long_position_requires_shortability():
+
+    class FakeBroker:
+
+        def __init__(self):
+            self.submit_count = 0
+
+        def can_short(
+            self,
+            symbol
+        ):
+            return False
+
+        def submit_order(
+            self,
+            order
+        ):
+            self.submit_count += 1
+            return "fake-order"
+
+
+    portfolio = Portfolio(
+        10000
+    )
+
+    portfolio.positions["AAPL"] = Position(
+        symbol="AAPL",
+        quantity=5,
+        average_cost=100
+    )
+
+
+    broker = FakeBroker()
+
+
+    order = Order(
+        symbol="AAPL",
+        quantity=10,
+        side="SELL"
+    )
+
+
+    engine = TradingEngine(
+        portfolio=portfolio,
+        risk_manager=None,
+        execution=None,
+        rebalancer=None,
+        strategy=None,
+        broker=broker
+    )
+
+
+    assert (
+        engine._requires_shorting(
+            order
+        )
+        is True
+    )
+
+    assert (
+        engine._broker_allows_order(
+            order
+        )
+        is False
+    )

@@ -7,6 +7,7 @@ from alpaca.trading.requests import MarketOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce
 
 from .broker import Broker
+from alpaca.common.exceptions import APIError
 
 
 class AlpacaPaperBroker(Broker):
@@ -27,27 +28,97 @@ class AlpacaPaperBroker(Broker):
             paper=True
         )
 
+    def submit_order(
+        self,
+        order
+    ):
 
-    def submit_order(self, order):
+        client_order_id = getattr(
+            order,
+            "client_order_id",
+            None
+        )
+
+
+        # ----------------------------------
+        # Idempotency check
+        # ----------------------------------
+
+        if client_order_id is not None:
+
+            try:
+
+                existing_order = (
+                    self.get_order_by_client_id(
+                        client_order_id
+                    )
+                )
+
+                return str(
+                    existing_order.id
+                )
+
+
+            except APIError as error:
+
+                if error.status_code != 404:
+                    raise
+
+    # 404 means the client_order_id
+    # does not exist yet.
+    # It is therefore safe to submit.
+
+
+        # ----------------------------------
+        # Normal submission
+        # ----------------------------------
 
         if order.side == "BUY":
+
             side = OrderSide.BUY
-        else:
+
+        elif order.side == "SELL":
+
             side = OrderSide.SELL
 
+        else:
+
+            raise ValueError(
+                "order side must be BUY or SELL"
+            )
+
+
+        request_data = {
+            "symbol": order.symbol,
+            "qty": order.quantity,
+            "side": side,
+            "time_in_force":
+                TimeInForce.DAY
+        }
+
+
+        if client_order_id is not None:
+
+            request_data[
+                "client_order_id"
+            ] = client_order_id
+
+
         request = MarketOrderRequest(
-            symbol=order.symbol,
-            qty=order.quantity,
-            side=side,
-            time_in_force=TimeInForce.DAY
+            **request_data
         )
 
-        broker_order = self.client.submit_order(
-            order_data=request
+
+        broker_order = (
+            self.client.submit_order(
+                order_data=request
+            )
         )
 
-        return str(broker_order.id)
 
+        return str(
+            broker_order.id
+        )
 
     def cancel_order(self, order_id):
 
@@ -79,3 +150,60 @@ class AlpacaPaperBroker(Broker):
     def get_clock(self):
 
         return self.client.get_clock()
+
+    def get_asset(
+        self,
+        symbol
+    ):
+
+        return self.client.get_asset(
+            symbol
+        )
+
+
+    def can_short(
+        self,
+        symbol
+    ):
+
+        account = self.get_account()
+
+        if not getattr(
+            account,
+            "shorting_enabled",
+            False
+        ):
+
+            return False
+
+
+        asset = self.get_asset(
+            symbol
+        )
+
+
+        return (
+            getattr(
+                asset,
+                "tradable",
+                False
+            )
+            and
+            getattr(
+                asset,
+                "shortable",
+                False
+            )
+        )
+
+    def get_order_by_client_id(
+        self,
+        client_order_id
+    ):
+
+        return (
+            self.client
+            .get_order_by_client_id(
+                client_order_id
+            )
+        )

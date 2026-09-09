@@ -6,6 +6,7 @@ from .strategy import MomentumStrategy
 from .events import SignalEvent, OrderEvent, MarketEvent, FillEvent
 from collections import deque
 import logging
+import hashlib
 import time
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,11 @@ class TradingEngine:
 
         return {"orders": orders, "requested_turnover": requested_turnover}
 
-    def run_broker_cycle(self, history):
+    def run_broker_cycle(
+        self,
+        history,
+        cycle_key=None
+    ):
 
         if self.broker is None:
             raise ValueError("broker is required for broker cycle")
@@ -63,19 +68,59 @@ class TradingEngine:
             prices
         )
 
+        if cycle_key is not None:
+
+            for order in orders:
+
+                order.client_order_id = (
+                    self._build_client_order_id(
+                        cycle_key,
+                        order
+                    )
+                )
+
         submitted_orders = []
 
         for order in orders:
 
-            if self.risk_manager.check_order(
+            if not self.risk_manager.check_order(
                 order,
                 self.portfolio,
                 prices
             ):
 
-                broker_order = self.broker.submit_order(order)
+                logger.warning(
+                    "%s %s rejected by risk manager",
+                    order.symbol,
+                    order.side
+                )
 
-                submitted_orders.append(broker_order)
+                continue
+
+
+            if not self._broker_allows_order(
+                order
+            ):
+
+                logger.warning(
+                    "%s %s rejected: "
+                    "asset/account cannot short",
+                    order.symbol,
+                    order.side
+                )
+
+                continue
+
+
+            broker_order = (
+                self.broker.submit_order(
+                    order
+                )
+            )
+
+            submitted_orders.append(
+                broker_order
+            )
 
         return {
             "target_weights": target_weights,
@@ -287,5 +332,87 @@ class TradingEngine:
 
         return self.reconcile_broker_orders(
             order_ids
+        )
+
+    def _build_client_order_id(
+        self,
+        cycle_key,
+        order
+    ):
+
+        strategy_name = getattr(
+            self.strategy,
+            "name",
+            "strategy"
+        )
+
+        raw_id = (
+            f"{cycle_key}|"
+            f"{strategy_name}|"
+            f"{order.symbol}"
+        )
+
+        digest = hashlib.sha256(
+            raw_id.encode()
+        ).hexdigest()[:16]
+
+        date_key = cycle_key.replace(
+            "-",
+            ""
+        )
+
+        return (
+            f"qt-{date_key}-{digest}"
+        )
+
+    def _requires_shorting(
+        self,
+        order
+    ):
+
+        if order.side != "SELL":
+            return False
+
+        position = self.portfolio.get_position(
+            order.symbol
+        )
+
+        current_quantity = (
+            0
+            if position is None
+            else position.quantity
+        )
+
+        projected_quantity = (
+            current_quantity
+            - order.quantity
+        )
+
+        return projected_quantity < 0
+
+    def _broker_allows_order(
+        self,
+        order
+    ):
+
+        if not self._requires_shorting(
+            order
+        ):
+            return True
+
+        can_short = getattr(
+            self.broker,
+            "can_short",
+            None
+        )
+
+        # Fail closed:
+        # if broker cannot verify shortability,
+        # do not open a short.
+        if can_short is None:
+            return False
+
+        return can_short(
+            order.symbol
         )
 
