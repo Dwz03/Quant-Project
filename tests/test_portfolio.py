@@ -1,5 +1,6 @@
 from src.portfolio import Portfolio
 from src.position import Position
+from src.fill import Fill
 import pytest
 
 @pytest.fixture
@@ -198,3 +199,115 @@ def test_asset_exposure_ratio():
     result = portfolio.asset_exposure_ratio("AAPL", prices)
 
     assert result == pytest.approx(0.4)
+
+def test_sync_from_broker():
+
+    class FakeAccount:
+
+        cash = "8000.0"
+
+    class FakeBrokerPosition:
+
+        def __init__(
+            self,
+            symbol,
+            qty,
+            avg_entry_price
+        ):
+            self.symbol = symbol
+            self.qty = qty
+            self.avg_entry_price = avg_entry_price
+
+    account = FakeAccount()
+
+    broker_positions = [
+        FakeBrokerPosition(
+            "AAPL",
+            "10",
+            "200.0"
+        ),
+        FakeBrokerPosition(
+            "MSFT",
+            "5",
+            "400.0"
+        )
+    ]
+
+    portfolio = Portfolio(10000)
+
+    portfolio.sync_from_broker(
+        account,
+        broker_positions
+    )
+
+    assert portfolio.cash == 8000.0
+
+    assert (
+        portfolio.get_position("AAPL").quantity
+        == 10
+    )
+
+    assert (
+        portfolio.get_position("AAPL").average_cost
+        == 200.0
+    )
+
+    assert (
+        portfolio.get_position("MSFT").quantity
+        == 5
+    )
+
+def test_short_position_open_and_cover():
+
+    portfolio = Portfolio(10000)
+
+    # Short 10 shares @ 100
+    sell_fill = Fill(
+        "AAPL",
+        10,
+        "SELL",
+        100,
+        0.0
+    )
+
+    portfolio.process_fill(
+        sell_fill
+    )
+
+    position = portfolio.get_position(
+        "AAPL"
+    )
+
+    assert position.quantity == -10
+    assert position.average_cost == 100
+
+    # short sale proceeds increase cash
+    assert portfolio.cash == 11000
+
+    # Equity does NOT magically increase
+    assert portfolio.total_value({
+        "AAPL": 100
+    }) == 10000
+
+
+    # Cover @ 90
+    buy_fill = Fill(
+        "AAPL",
+        10,
+        "BUY",
+        90,
+        0.0
+    )
+
+    portfolio.process_fill(
+        buy_fill
+    )
+
+    assert (
+        portfolio.get_position("AAPL")
+        is None
+    )
+
+    assert portfolio.cash == 10100
+
+    assert portfolio.realised_pnl == 100

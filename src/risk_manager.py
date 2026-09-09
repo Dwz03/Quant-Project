@@ -53,25 +53,80 @@ class RiskManager:
 
         return abs(projected_position_value) <= max_allowed_value 
 
-    def check_cash(self, order, portfolio, price):
+    def check_cash(
+        self,
+        order,
+        portfolio,
+        prices
+    ):
 
-        if order.side == "BUY":
+        position = portfolio.get_position(
+            order.symbol
+        )
 
-            required_cash = order.quantity * price[order.symbol]
+        if position is None:
+            current_quantity = 0
+        else:
+            current_quantity = position.quantity
 
-            return required_cash <= portfolio.cash
 
-        elif order.side == "SELL":
+        if order.side == "SELL":
 
-            position = portfolio.get_position(order.symbol)
+            # Selling a long position or opening /
+            # increasing a short position does not
+            # require cash in our simplified model.
+            #
+            # Short risk is controlled by:
+            # max_position + leverage.
+            return True
 
-            if position is None:
-                return False
 
-            return order.quantity <= position.quantity
+        elif order.side == "BUY":
+
+            # --------------------------------
+            # Existing short position
+            # --------------------------------
+
+            if current_quantity < 0:
+
+                short_quantity = abs(
+                    current_quantity
+                )
+
+                # Pure short cover:
+                # risk-reducing order
+                if order.quantity <= short_quantity:
+                    return True
+
+                # Cover short + flip into long
+                opening_long_quantity = (
+                    order.quantity
+                    - short_quantity
+                )
+
+                required_cash = (
+                    opening_long_quantity
+                    * prices[order.symbol]
+                )
+
+            else:
+
+                required_cash = (
+                    order.quantity
+                    * prices[order.symbol]
+                )
+
+            return (
+                required_cash
+                <= portfolio.cash
+            )
+
 
         else:
-            raise ValueError("order side must be buy or sell")
+
+            raise ValueError(
+                "order side must be buy or sell"
+            )
 
     def check_leverage(self, order, portfolio, prices):
 

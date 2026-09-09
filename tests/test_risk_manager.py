@@ -2,6 +2,7 @@ from src.risk_manager import RiskManager
 from src.portfolio import Portfolio
 from src.order import Order
 from src.position import Position
+from src.fill import Fill
 import pytest
 
 def test_risk_manager():
@@ -119,3 +120,98 @@ def test_check_portfolio_exposures_net_short_fail():
     assert result["net_exposure"] == pytest.approx(-0.2)
     assert result["net_ok"] is False
     assert result["portfolio_ok"] is False
+
+def test_risk_manager_allows_small_short():
+
+    portfolio = Portfolio(10000)
+
+    prices = {
+        "AAPL": 100
+    }
+
+    order = Order(
+        "AAPL",
+        10,
+        "SELL"
+    )
+
+    risk_manager = RiskManager(
+        max_position_pct=0.20,
+        max_leverage=1.0
+    )
+
+    result = risk_manager.check_order(
+        order,
+        portfolio,
+        prices
+    )
+
+    assert result is True
+
+def test_risk_manager_allows_increasing_short_within_limit():
+
+    portfolio = Portfolio(10000)
+
+    prices = {
+        "AAPL": 100
+    }
+
+    first_fill = Fill(
+        "AAPL",
+        10,
+        "SELL",
+        100,
+        0.0
+    )
+
+    portfolio.process_fill(
+        first_fill
+    )
+
+    # Existing position = -10 shares
+
+    order = Order(
+        "AAPL",
+        5,
+        "SELL"
+    )
+
+    risk_manager = RiskManager(
+        max_position_pct=0.20,
+        max_leverage=1.0
+    )
+
+    result = risk_manager.check_order(
+        order,
+        portfolio,
+        prices
+    )
+
+    assert result is True
+
+def test_risk_manager_rejects_oversized_short():
+
+    portfolio = Portfolio(10000)
+
+    prices = {
+        "AAPL": 100
+    }
+
+    order = Order(
+        "AAPL",
+        30,
+        "SELL"
+    )
+
+    risk_manager = RiskManager(
+        max_position_pct=0.20,
+        max_leverage=1.0
+    )
+
+    result = risk_manager.check_order(
+        order,
+        portfolio,
+        prices
+    )
+
+    assert result is False

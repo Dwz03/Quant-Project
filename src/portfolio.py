@@ -102,52 +102,160 @@ class Portfolio:
 
     def process_fill(self, fill):
 
+        position = self.positions.get(fill.symbol)
+
+        market_value = fill.market_value()
+
+        commission = (
+            market_value * fill.commission_rate
+        )
+
+        self.total_commission += commission
+
+        # BUY = positive quantity change
+        # SELL = negative quantity change
         if fill.side == "BUY":
 
-            cost = fill.market_value() * (1 + fill.commission_rate)
+            cash_required = market_value + commission
 
-            if cost > self.cash:
+            if cash_required > self.cash:
+                raise ValueError(
+                    "we do not have enough cash"
+                )
 
-                raise ValueError("we do not have enough cash")
+            self.cash -= cash_required
 
-            self.cash = self.cash - cost
-
-            position = self.positions.get(fill.symbol)
-
-            commission = (fill.market_value() * fill.commission_rate)
-
-            self.total_commission += commission
-
-            if position is None:
-                self.positions[fill.symbol] = Position(fill.symbol, fill.quantity, fill.price)
-
-            else:
-                position.add_quantity(fill.quantity, fill.price)
+            signed_quantity = fill.quantity
 
         else:
 
-            position = self.positions.get(fill.symbol)
+            self.cash += market_value - commission
 
-            if position is None:
-                raise ValueError("we do not have this asset")
+            signed_quantity = -fill.quantity
 
-            if position.quantity < fill.quantity:
-                raise ValueError("we do not have enough quantity")
-            
-            commission = (fill.market_value() * fill.commission_rate)
 
-            self.total_commission += commission
+        # --------------------------------
+        # No existing position
+        # --------------------------------
 
-            proceed = fill.market_value() * (1 - fill.commission_rate)
+        if position is None:
 
-            self.cash = self.cash + proceed 
+            self.positions[fill.symbol] = Position(
+                fill.symbol,
+                signed_quantity,
+                fill.price
+            )
 
-            realised = position.reduce_quantity(fill.quantity, fill.price)
+            return
 
-            self.realised_pnl += realised
 
-            if position.quantity == 0:
-                self._remove_position(fill.symbol)
+        old_quantity = position.quantity
+
+        new_quantity = (
+            old_quantity + signed_quantity
+        )
+
+
+        # --------------------------------
+        # Same direction:
+        # add to long OR add to short
+        # --------------------------------
+
+        if old_quantity * signed_quantity > 0:
+
+            total_cost = (
+                abs(old_quantity)
+                * position.average_cost
+                +
+                abs(signed_quantity)
+                * fill.price
+            )
+
+            new_average_cost = (
+                total_cost / abs(new_quantity)
+            )
+
+            position.update_quantity(
+                new_quantity
+            )
+
+            position.average_cost = (
+                new_average_cost
+            )
+
+            return
+
+
+        # --------------------------------
+        # Opposite direction:
+        # reduce / close / flip
+        # --------------------------------
+
+        closing_quantity = min(
+            abs(old_quantity),
+            abs(signed_quantity)
+        )
+
+
+        # Close long
+        if old_quantity > 0:
+
+            realised = (
+                closing_quantity
+                * (
+                    fill.price
+                    - position.average_cost
+                )
+            )
+
+        # Cover short
+        else:
+
+            realised = (
+                closing_quantity
+                * (
+                    position.average_cost
+                    - fill.price
+                )
+            )
+
+
+        self.realised_pnl += realised
+
+
+        # Fully closed
+        if new_quantity == 0:
+
+            self._remove_position(
+                fill.symbol
+            )
+
+            return
+
+
+        # Still same original direction:
+        # partial close
+        if old_quantity * new_quantity > 0:
+
+            position.update_quantity(
+                new_quantity
+            )
+
+            # average cost stays unchanged
+            return
+
+
+        # --------------------------------
+        # Crossed through zero
+        # long -> short
+        # or short -> long
+        # --------------------------------
+
+        position.update_quantity(
+            new_quantity
+        )
+
+        position.average_cost = fill.price
 
     def total_unrealised_pnl(self, prices):
 
@@ -227,5 +335,25 @@ class Portfolio:
         exposure = abs(position.quantity * prices[symbol])
 
         return exposure / equity
+
+    def sync_from_broker(self, account, broker_positions):
+
+        self.cash = float(account.cash)
+
+        self.positions = {}
+
+        for broker_position in broker_positions:
+
+            symbol = broker_position.symbol
+            quantity = float(broker_position.qty)
+            average_cost = float(
+                broker_position.avg_entry_price
+            )
+
+            self.positions[symbol] = Position(
+                symbol,
+                quantity,
+                average_cost
+            )
 
 

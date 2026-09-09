@@ -3,6 +3,7 @@ import pytest
 from src.broker import PaperBroker, Broker
 from src.order import Order
 from src.portfolio import Portfolio
+from src.alpaca_broker import AlpacaPaperBroker
 
 
 def test_broker_cannot_be_instantiated():
@@ -124,3 +125,25 @@ def test_broker_fill_updates_portfolio():
     assert portfolio.cash == pytest.approx(5996)
 
     assert portfolio.total_commission == pytest.approx(4)
+
+def test_alpaca_broker_get_positions_and_clock():
+
+    class FakeClient:
+
+        def get_all_positions(self):
+            return ["test-position"]
+
+        def get_clock(self):
+            return "test-clock"
+
+    broker = AlpacaPaperBroker.__new__(
+        AlpacaPaperBroker
+    )
+
+    broker.client = FakeClient()
+
+    assert broker.get_positions() == [
+        "test-position"
+    ]
+
+    assert broker.get_clock() == "test-clock"

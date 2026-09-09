@@ -75,3 +75,4 @@ def test_strategy_return_starts_flat():
     result = calculate_strategy_returns(data, positions)
 
     assert result["strategy_return"].iloc[0] == pytest.approx(0.0)
+

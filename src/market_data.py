@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
-
-from alpaca.data.requests import StockLatestTradeRequest
+from alpaca.data.requests import (StockLatestTradeRequest,StockBarsRequest)
+from alpaca.data.timeframe import TimeFrame
+from alpaca.data.enums import DataFeed
 
 
 class MarketDataError(Exception):
@@ -21,7 +22,8 @@ class AlpacaMarketDataAdapter:
             raise ValueError("symbol cannot be empty")
 
         request = StockLatestTradeRequest(
-            symbol_or_symbols=symbol
+            symbol_or_symbols=symbol,
+            feed=DataFeed.IEX
         )
 
         trades = self.client.get_stock_latest_trade(request)
@@ -60,3 +62,33 @@ class AlpacaMarketDataAdapter:
             )
 
         return float(trade.price)
+
+    def get_history(self, symbols, start, end, timeframe=TimeFrame.Day):
+
+        if not symbols:
+            raise ValueError("symbols cannot be empty")
+
+        request = StockBarsRequest(
+            symbol_or_symbols=symbols,
+            timeframe=timeframe,
+            start=start,
+            end=end,
+            feed=DataFeed.IEX
+        )
+
+        bars = self.client.get_stock_bars(request)
+
+        df = bars.df
+
+        if df.empty:
+            raise MarketDataError(
+                "No historical market data available"
+            )
+
+        close_prices = (
+            df["close"]
+            .unstack(level="symbol")
+            .sort_index()
+        )
+
+        return close_prices

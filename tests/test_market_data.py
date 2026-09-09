@@ -1,4 +1,5 @@
 import pytest
+import pandas as pd
 
 from datetime import datetime, timezone, timedelta
 from types import SimpleNamespace
@@ -111,3 +112,57 @@ def test_recent_market_data():
     )
 
     assert price == 200
+
+def test_get_history():
+
+    class FakeBars:
+
+        @property
+        def df(self):
+
+            index = pd.MultiIndex.from_tuples(
+                [
+                    ("AAPL", pd.Timestamp("2026-09-01")),
+                    ("AAPL", pd.Timestamp("2026-09-02")),
+                    ("MSFT", pd.Timestamp("2026-09-01")),
+                    ("MSFT", pd.Timestamp("2026-09-02")),
+                ],
+                names=["symbol", "timestamp"]
+            )
+
+            return pd.DataFrame(
+                {
+                    "close": [
+                        100,
+                        101,
+                        200,
+                        202
+                    ]
+                },
+                index=index
+            )
+
+    class FakeClient:
+
+        def get_stock_bars(self, request):
+
+            return FakeBars()
+
+    adapter = AlpacaMarketDataAdapter(
+        FakeClient()
+    )
+
+    result = adapter.get_history(
+        ["AAPL", "MSFT"],
+        start=datetime(2026, 9, 1),
+        end=datetime(2026, 9, 3)
+    )
+
+    assert list(result.columns) == [
+        "AAPL",
+        "MSFT"
+    ]
+
+    assert result.iloc[0]["AAPL"] == 100
+
+    assert result.iloc[1]["MSFT"] == 202

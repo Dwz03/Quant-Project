@@ -70,3 +70,12 @@ class AlpacaPaperBroker(Broker):
     def get_order(self, order_id):
 
         return self.client.get_order_by_id(order_id)
+
+    def get_positions(self):
+
+        return self.client.get_all_positions()
+
+
+    def get_clock(self):
+
+        return self.client.get_clock()
