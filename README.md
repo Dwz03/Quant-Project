@@ -40,6 +40,14 @@ order status and broker-state reconciliation
 
 Research and backtesting are separate from broker execution. The repository contains vectorized and event-driven backtesting components, performance metrics, validation utilities, and research implementations for mean reversion, pairs, and PCA-based statistical arbitrage. These paths do not need to submit broker orders.
 
+### Research experiment evaluation semantics
+
+The reusable research experiment layer uses chronological train, validation, and test splits. Parameter selection may inspect both training and validation data, so reported validation performance is model-selection performance rather than an unbiased final out-of-sample estimate. The test split is not available to parameter selection; its held-out performance is the final untouched evaluation.
+
+Target-weight evaluation requires finite close-to-close returns for every asset in the supplied evaluation universe, even when an asset has zero target weight. Missing or infinite returns fail the experiment explicitly rather than being treated as zero contribution during portfolio aggregation.
+
+The Week 11 standardized validation and robustness phase is complete. See the [research protocol](research/PROTOCOL.md) for the project-wide evidence standard and the [Momentum v1 research note](research/notes/momentum_v1.md) for the first completed strategy decision record.
+
 ## 3. Core Components
 
 - **Strategy interfaces and factory** — `TradingStrategy` defines the target-weight interface used by automated execution. `build_strategy()` selects a supported implementation from configuration. The older signal-oriented `Strategy` interface remains available for event-driven experiments.
@@ -167,6 +175,26 @@ PYTHONPATH=. python -m pytest -q tests
 
 Broker, paper-engine, reconciliation, restart-safety, idempotency, and batch-risk tests use fake clients and brokers. They do not require real Alpaca credentials or order submission.
 
+### Running the momentum research example
+
+The momentum research runner uses the existing adjusted daily-price loader and standardized experiment framework. By default it evaluates `SPY`, `QQQ`, `AAPL`, and `MSFT` from `2021-01-01` through `2026-01-01`, with 60%/20%/20% chronological splits, lookbacks of 5, 10, 20, and 60 days, a fixed long-only target weight of 0.25, and a proportional transaction-cost rate of 0.001.
+
+Run it manually from the repository root:
+
+```bash
+python -m research.run_momentum_research
+```
+
+Exact cached files are reused when present; otherwise the existing loader downloads auto-adjusted daily data through yfinance. The terminal report compares Momentum with Equal-Weight Constant Allocation and SPY Buy & Hold on the same validation and test dates. Generated `candidate_results.csv`, `summary.csv`, and `benchmark_comparison.csv` files are written under `research_results/momentum/`, which is gitignored.
+
+Run the expanding-window robustness experiment separately with:
+
+```bash
+python -m research.run_momentum_research --walk-forward
+```
+
+Its defaults use 252 training observations followed by 63 validation and 63 unseen test observations, advancing 63 observations per fold. It writes `walk_forward_folds.csv`, `walk_forward_summary.csv`, and `walk_forward_benchmark_comparison.csv` to the same gitignored results directory.
+
 ## 10. Running the Automated Paper Bot
 
 Configure the required environment variables without exposing credentials on the command line, activate the virtual environment, and run:
@@ -204,7 +232,6 @@ This command is for Alpaca paper trading only. It does not provide a live-tradin
 
 These are future research directions, not claims about completed functionality:
 
-- a standardized strategy research and experiment framework;
 - regression-based alpha research;
 - broader momentum research;
 - expanded mean-reversion and pairs research;

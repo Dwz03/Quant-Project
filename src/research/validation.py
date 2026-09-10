@@ -390,28 +390,65 @@ def summarize_parameter_robustness(tuning_results, metric="Sharpe Ratio", max_pe
 
     return robustness
 
-def apply_transaction_costs(strategy_returns, positions, cost_rate):
+def calculate_turnover(positions, initial_positions=None):
 
-    if cost_rate < 0:
-        raise ValueError("cost_rate must be non-negative")
+    if positions.empty:
+        raise ValueError("positions cannot be empty")
 
     positions_used = positions.fillna(0)
 
     turnover = positions_used.diff().abs()
 
-    turnover.iloc[0] = abs(positions_used.iloc[0])
+    if isinstance(positions_used, pd.DataFrame):
+        if initial_positions is None:
+            initial = pd.Series(0.0, index=positions_used.columns)
+        else:
+            if not isinstance(initial_positions, pd.Series):
+                raise TypeError("initial_positions must be a Series for DataFrame positions")
+            if set(initial_positions.index) != set(positions_used.columns):
+                raise ValueError("initial_positions must contain exactly the position columns")
+            initial = initial_positions.reindex(positions_used.columns)
+
+        turnover.iloc[0] = (positions_used.iloc[0] - initial).abs()
+    else:
+        if isinstance(initial_positions, pd.Series):
+            raise TypeError("initial_positions must be scalar for Series positions")
+        initial = 0.0 if initial_positions is None else float(initial_positions)
+        turnover.iloc[0] = abs(positions_used.iloc[0] - initial)
+
+    if isinstance(turnover, pd.DataFrame):
+        turnover = turnover.sum(axis=1)
+
+    return turnover
+
+
+def apply_transaction_costs(
+    strategy_returns,
+    positions,
+    cost_rate,
+    initial_positions=None,
+):
+
+    if cost_rate < 0:
+        raise ValueError("cost_rate must be non-negative")
+
+    turnover = calculate_turnover(positions, initial_positions=initial_positions)
 
     costs = turnover * cost_rate
 
     net_returns = strategy_returns - costs
 
-    return pd.DataFrame({
+    result = pd.DataFrame({
         "strategy_return": strategy_returns,
-        "position": positions,
         "turnover": turnover,
         "cost": costs,
         "net_strategy_return": net_returns
     })
+
+    if isinstance(positions, pd.Series):
+        result.insert(1, "position", positions)
+
+    return result
 
 def run_cost_sensitivity(strategy_returns, positions, cost_rates):
 

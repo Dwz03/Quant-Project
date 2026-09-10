@@ -14,3 +14,9 @@ __pycache__/
 
 # Runtime cycle state
 .state/
+
+# Generated research outputs
+research_results/
+
+
+.DS_Store

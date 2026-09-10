@@ -31,3 +31,42 @@ from .pca import (
 )
 
 from .validation import run_validation_comparison
+
+from .experiment import (
+    DataSplits,
+    EvaluationResult,
+    ExperimentConfig,
+    ExperimentResult,
+    ParameterSelector,
+    StrategyEvaluation,
+    StrategyEvaluator,
+    TargetWeightGenerator,
+    TargetWeightStrategyEvaluator,
+    create_data_splits,
+    evaluate_split,
+    evaluate_target_weight_strategy,
+    run_experiment,
+)
+
+from .momentum_experiment import (
+    EQUAL_WEIGHT_BENCHMARK_NAME,
+    MOMENTUM_NAME,
+    SPY_BENCHMARK_NAME,
+    MomentumBenchmarkResult,
+    MomentumExperimentResult,
+    MomentumWalkForwardResult,
+    compare_momentum_with_benchmarks,
+    run_momentum_experiment,
+    run_momentum_walk_forward,
+    select_momentum_parameters,
+    summarize_momentum_experiment,
+)
+
+from .walk_forward import (
+    WalkForwardConfig,
+    WalkForwardFold,
+    WalkForwardFoldResult,
+    WalkForwardResult,
+    generate_walk_forward_folds,
+    run_walk_forward,
+)
