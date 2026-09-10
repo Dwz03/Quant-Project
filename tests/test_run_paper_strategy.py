@@ -5,9 +5,39 @@ from src.risk_manager import RiskManager
 from src.execution import ExecutionHandler
 from src.trading_engine import TradingEngine
 from src.strategy_factory import build_strategy
+from scripts.run_paper_strategy import (
+    _require_paper_broker
+)
 import pandas as pd
 import numpy as np
 import pytest
+
+
+def test_paper_runner_accepts_explicit_paper_broker():
+
+    class FakePaperBroker:
+        is_paper = True
+
+    _require_paper_broker(
+        FakePaperBroker()
+    )
+
+
+@pytest.mark.parametrize(
+    "broker",
+    [object(), type("LiveBroker", (), {
+        "is_paper": False
+    })()]
+)
+def test_paper_runner_rejects_broker_without_paper_mode(
+    broker
+):
+
+    with pytest.raises(
+        RuntimeError,
+        match="explicitly paper-mode broker"
+    ):
+        _require_paper_broker(broker)
 
 
 def test_synced_portfolio_does_not_duplicate_order():
@@ -457,4 +487,3 @@ def test_pairs_requires_two_symbols():
             "pairs",
             symbols=["AAPL"]
         )
-        

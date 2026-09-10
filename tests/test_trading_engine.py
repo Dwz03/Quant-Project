@@ -109,6 +109,301 @@ class FakeBroker:
             "symbol": order.symbol
         }
 
+
+class ShortableBroker(FakeBroker):
+
+    def can_short(self, symbol):
+        return True
+
+
+class FixedOrderStrategy:
+
+    name = "Fixed Orders"
+
+    def generate_target_weights(self, history):
+        return {}
+
+
+class FixedOrderRebalancer:
+
+    def __init__(self, orders):
+        self.orders = orders
+
+    def generate_orders(self, target_weights, portfolio, prices):
+        return self.orders
+
+
+def build_batch_risk_engine(
+    orders,
+    cash=100,
+    max_position_pct=1.0,
+    max_leverage=1.0,
+    broker=None
+):
+
+    return TradingEngine(
+        portfolio=Portfolio(cash),
+        risk_manager=RiskManager(
+            max_position_pct=max_position_pct,
+            max_leverage=max_leverage
+        ),
+        execution=None,
+        rebalancer=FixedOrderRebalancer(orders),
+        strategy=FixedOrderStrategy(),
+        broker=broker or FakeBroker()
+    )
+
+
+def test_batch_risk_rejects_buys_that_collectively_exceed_cash():
+
+    orders = [
+        Order("AAPL", 60, "BUY"),
+        Order("MSFT", 60, "BUY"),
+        Order("GOOG", 60, "BUY")
+    ]
+
+    engine = build_batch_risk_engine(
+        orders,
+        max_leverage=10.0
+    )
+
+    result = engine.run_broker_cycle(
+        pd.DataFrame({
+            "AAPL": [1.0],
+            "MSFT": [1.0],
+            "GOOG": [1.0]
+        })
+    )
+
+    assert len(result["submitted_orders"]) == 1
+    assert engine.broker.submitted_orders == [orders[0]]
+
+
+def test_batch_risk_rejects_orders_that_collectively_exceed_leverage():
+
+    orders = [
+        Order("AAPL", 40, "BUY"),
+        Order("MSFT", 40, "BUY")
+    ]
+
+    broker = FakeBroker()
+    engine = build_batch_risk_engine(
+        orders,
+        max_leverage=0.5,
+        broker=broker
+    )
+
+    result = engine.run_broker_cycle(
+        pd.DataFrame({
+            "AAPL": [1.0],
+            "MSFT": [1.0]
+        })
+    )
+
+    assert len(result["submitted_orders"]) == 1
+    assert broker.submitted_orders == [orders[0]]
+
+
+def test_duplicate_same_symbol_orders_fail_before_submission():
+
+    orders = [
+        Order("AAPL", 150, "SELL"),
+        Order("AAPL", 150, "SELL")
+    ]
+
+    broker = ShortableBroker()
+    engine = build_batch_risk_engine(
+        orders,
+        cash=0,
+        max_position_pct=1.0,
+        max_leverage=2.0,
+        broker=broker
+    )
+    engine.portfolio.positions["AAPL"] = Position(
+        symbol="AAPL",
+        quantity=100,
+        average_cost=1.0
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="duplicate symbols"
+    ):
+        engine.run_broker_cycle(
+            pd.DataFrame({
+                "AAPL": [1.0]
+            })
+        )
+
+    assert broker.submitted_orders == []
+
+
+def test_single_sell_can_cross_to_short_within_limits():
+
+    orders = [
+        Order("AAPL", 190, "SELL")
+    ]
+
+    broker = ShortableBroker()
+    engine = build_batch_risk_engine(
+        orders,
+        cash=0,
+        broker=broker
+    )
+    engine.portfolio.positions["AAPL"] = Position(
+        symbol="AAPL",
+        quantity=100,
+        average_cost=1.0
+    )
+
+    result = engine.run_broker_cycle(
+        pd.DataFrame({
+            "AAPL": [1.0]
+        })
+    )
+
+    assert len(result["submitted_orders"]) == 1
+    assert broker.submitted_orders == orders
+
+
+def test_buy_does_not_rely_on_unfilled_sell_proceeds():
+
+    orders = [
+        Order("AAPL", 100, "SELL"),
+        Order("MSFT", 100, "BUY")
+    ]
+
+    engine = build_batch_risk_engine(
+        orders,
+        cash=0
+    )
+    engine.portfolio.positions["AAPL"] = Position(
+        symbol="AAPL",
+        quantity=100,
+        average_cost=1.0
+    )
+
+    result = engine.run_broker_cycle(
+        pd.DataFrame({
+            "AAPL": [1.0],
+            "MSFT": [1.0]
+        })
+    )
+
+    assert len(result["submitted_orders"]) == 1
+    assert engine.broker.submitted_orders == [orders[0]]
+
+
+def test_pending_buy_cover_keeps_confirmed_short_exposure_reserved():
+
+    orders = [
+        Order("AAPL", 100, "BUY"),
+        Order("MSFT", 100, "BUY")
+    ]
+
+    engine = build_batch_risk_engine(
+        orders,
+        cash=200,
+        max_leverage=1.0
+    )
+    engine.portfolio.positions["AAPL"] = Position(
+        symbol="AAPL",
+        quantity=-100,
+        average_cost=1.0
+    )
+
+    result = engine.run_broker_cycle(
+        pd.DataFrame({
+            "AAPL": [1.0],
+            "MSFT": [1.0]
+        })
+    )
+
+    assert len(result["submitted_orders"]) == 1
+    assert engine.broker.submitted_orders == [orders[0]]
+
+
+def test_pending_buy_cover_reserves_cash():
+
+    orders = [
+        Order("AAPL", 100, "BUY"),
+        Order("MSFT", 150, "BUY"),
+        Order("GOOG", 150, "BUY")
+    ]
+
+    engine = build_batch_risk_engine(
+        orders,
+        cash=300,
+        max_leverage=10.0
+    )
+    engine.portfolio.positions["AAPL"] = Position(
+        symbol="AAPL",
+        quantity=-100,
+        average_cost=1.0
+    )
+
+    result = engine.run_broker_cycle(
+        pd.DataFrame({
+            "AAPL": [1.0],
+            "MSFT": [1.0],
+            "GOOG": [1.0]
+        })
+    )
+
+    assert len(result["submitted_orders"]) == 2
+    assert engine.broker.submitted_orders == orders[:2]
+
+
+def test_rejected_order_is_not_reserved_in_projected_batch_state():
+
+    orders = [
+        Order("AAPL", 40, "BUY"),
+        Order("MSFT", 70, "BUY"),
+        Order("GOOG", 60, "BUY")
+    ]
+
+    engine = build_batch_risk_engine(
+        orders
+    )
+
+    result = engine.run_broker_cycle(
+        pd.DataFrame({
+            "AAPL": [1.0],
+            "MSFT": [1.0],
+            "GOOG": [1.0]
+        })
+    )
+
+    assert len(result["submitted_orders"]) == 2
+    assert engine.broker.submitted_orders == [
+        orders[0],
+        orders[2]
+    ]
+
+
+def test_valid_batch_passes_cumulative_risk_checks():
+
+    orders = [
+        Order("AAPL", 20, "BUY"),
+        Order("MSFT", 30, "BUY"),
+        Order("GOOG", 40, "BUY")
+    ]
+
+    engine = build_batch_risk_engine(orders)
+
+    result = engine.run_broker_cycle(
+        pd.DataFrame({
+            "AAPL": [1.0],
+            "MSFT": [1.0],
+            "GOOG": [1.0]
+        })
+    )
+
+    assert len(result["submitted_orders"]) == 3
+    assert engine.broker.submitted_orders == orders
+    assert engine.portfolio.cash == 100
+    assert engine.portfolio.positions == {}
+
 def test_run_broker_cycle_submits_strategy_order():
 
     history = pd.DataFrame({

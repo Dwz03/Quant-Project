@@ -4,11 +4,104 @@ from .execution import ExecutionHandler
 from .rebalancer import Rebalancer
 from .strategy import MomentumStrategy
 from .events import SignalEvent, OrderEvent, MarketEvent, FillEvent
+from .fill import Fill
 from collections import deque
+import copy
 import logging
 import hashlib
 import time
 logger = logging.getLogger(__name__)
+
+
+def _cycle_client_order_id_prefix(cycle_key):
+
+    date_key = cycle_key.replace(
+        "-",
+        ""
+    )
+
+    return f"qt-{date_key}-"
+
+
+class _ConservativeRiskProjection:
+
+    def __init__(self, portfolio, prices):
+
+        self.confirmed_quantities = {
+            symbol: position.quantity
+            for symbol, position
+            in portfolio.positions.items()
+        }
+        self.pending_buy_quantities = {}
+        self.pending_sell_quantities = {}
+        self.available_cash = portfolio.cash
+        self.equity = portfolio.total_value(prices)
+
+    def with_order(self, order, price):
+
+        projection = copy.deepcopy(self)
+
+        if order.side == "BUY":
+            quantities = (
+                projection.pending_buy_quantities
+            )
+            projection.available_cash -= (
+                order.quantity * price
+            )
+        else:
+            quantities = (
+                projection.pending_sell_quantities
+            )
+
+        quantities[order.symbol] = (
+            quantities.get(order.symbol, 0)
+            + order.quantity
+        )
+
+        return projection
+
+    def conservative_quantities(self):
+
+        symbols = (
+            set(self.confirmed_quantities)
+            | set(self.pending_buy_quantities)
+            | set(self.pending_sell_quantities)
+        )
+
+        quantities = {}
+
+        for symbol in symbols:
+
+            confirmed = self.confirmed_quantities.get(
+                symbol,
+                0
+            )
+            buy_endpoint = (
+                confirmed
+                + self.pending_buy_quantities.get(
+                    symbol,
+                    0
+                )
+            )
+            sell_endpoint = (
+                confirmed
+                - self.pending_sell_quantities.get(
+                    symbol,
+                    0
+                )
+            )
+
+            quantities[symbol] = max(
+                (
+                    confirmed,
+                    buy_endpoint,
+                    sell_endpoint
+                ),
+                key=abs
+            )
+
+        return quantities
+
 
 class TradingEngine:
 
@@ -68,6 +161,19 @@ class TradingEngine:
             prices
         )
 
+        order_symbols = [
+            order.symbol
+            for order in orders
+        ]
+
+        if len(order_symbols) != len(
+            set(order_symbols)
+        ):
+            raise ValueError(
+                "broker batch cannot contain "
+                "duplicate symbols"
+            )
+
         if cycle_key is not None:
 
             for order in orders:
@@ -80,13 +186,44 @@ class TradingEngine:
                 )
 
         submitted_orders = []
+        cumulative_fill_projection = copy.deepcopy(
+            self.portfolio
+        )
+        conservative_risk_projection = (
+            _ConservativeRiskProjection(
+                self.portfolio,
+                prices
+            )
+        )
 
         for order in orders:
 
-            if not self.risk_manager.check_order(
-                order,
-                self.portfolio,
-                prices
+            conservative_candidate = (
+                conservative_risk_projection
+                .with_order(
+                    order,
+                    prices[order.symbol]
+                )
+            )
+
+            cumulative_risk_ok = (
+                self.risk_manager.check_order(
+                    order,
+                    cumulative_fill_projection,
+                    prices
+                )
+            )
+
+            conservative_risk_ok = (
+                self._check_conservative_projection(
+                    conservative_candidate,
+                    prices
+                )
+            )
+
+            if not (
+                cumulative_risk_ok
+                and conservative_risk_ok
             ):
 
                 logger.warning(
@@ -99,7 +236,8 @@ class TradingEngine:
 
 
             if not self._broker_allows_order(
-                order
+                order,
+                portfolio=cumulative_fill_projection
             ):
 
                 logger.warning(
@@ -120,6 +258,15 @@ class TradingEngine:
 
             submitted_orders.append(
                 broker_order
+            )
+
+            self._apply_projected_fill(
+                cumulative_fill_projection,
+                order,
+                prices[order.symbol]
+            )
+            conservative_risk_projection = (
+                conservative_candidate
             )
 
         return {
@@ -356,24 +503,24 @@ class TradingEngine:
             raw_id.encode()
         ).hexdigest()[:16]
 
-        date_key = cycle_key.replace(
-            "-",
-            ""
-        )
-
         return (
-            f"qt-{date_key}-{digest}"
+            f"{_cycle_client_order_id_prefix(cycle_key)}"
+            f"{digest}"
         )
 
     def _requires_shorting(
         self,
-        order
+        order,
+        portfolio=None
     ):
 
         if order.side != "SELL":
             return False
 
-        position = self.portfolio.get_position(
+        if portfolio is None:
+            portfolio = self.portfolio
+
+        position = portfolio.get_position(
             order.symbol
         )
 
@@ -392,11 +539,13 @@ class TradingEngine:
 
     def _broker_allows_order(
         self,
-        order
+        order,
+        portfolio=None
     ):
 
         if not self._requires_shorting(
-            order
+            order,
+            portfolio=portfolio
         ):
             return True
 
@@ -416,3 +565,61 @@ class TradingEngine:
             order.symbol
         )
 
+    def _check_conservative_projection(
+        self,
+        projection,
+        prices
+    ):
+
+        if projection.available_cash < 0:
+            return False
+
+        if projection.equity <= 0:
+            return False
+
+        quantities = (
+            projection.conservative_quantities()
+        )
+
+        gross_exposure = 0
+
+        for symbol, quantity in quantities.items():
+
+            exposure = abs(
+                quantity * prices[symbol]
+            )
+
+            if exposure > (
+                self.risk_manager.max_position_pct
+                * projection.equity
+            ):
+                return False
+
+            gross_exposure += exposure
+
+        leverage = (
+            gross_exposure
+            / projection.equity
+        )
+
+        return (
+            leverage
+            <= self.risk_manager.max_leverage
+        )
+
+    def _apply_projected_fill(
+        self,
+        portfolio,
+        order,
+        price
+    ):
+
+        fill = Fill(
+            symbol=order.symbol,
+            quantity=order.quantity,
+            side=order.side,
+            price=price,
+            commission=0.0
+        )
+
+        portfolio.process_fill(fill)

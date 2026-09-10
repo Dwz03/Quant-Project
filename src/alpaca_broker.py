@@ -3,14 +3,23 @@ import os
 from dotenv import load_dotenv
 
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import MarketOrderRequest
-from alpaca.trading.enums import OrderSide, TimeInForce
+from alpaca.trading.requests import (
+    GetOrdersRequest,
+    MarketOrderRequest
+)
+from alpaca.trading.enums import (
+    OrderSide,
+    QueryOrderStatus,
+    TimeInForce
+)
 
 from .broker import Broker
 from alpaca.common.exceptions import APIError
 
 
 class AlpacaPaperBroker(Broker):
+
+    is_paper = True
 
     def __init__(self):
 
@@ -25,7 +34,7 @@ class AlpacaPaperBroker(Broker):
         self.client = TradingClient(
             api_key,
             secret_key,
-            paper=True
+            paper=self.is_paper
         )
 
     def submit_order(
@@ -145,6 +154,35 @@ class AlpacaPaperBroker(Broker):
     def get_positions(self):
 
         return self.client.get_all_positions()
+
+
+    def get_open_orders(self):
+
+        request = GetOrdersRequest(
+            status=QueryOrderStatus.OPEN
+        )
+
+        return self.client.get_orders(
+            filter=request
+        )
+
+
+    def get_order_history(
+        self,
+        start,
+        end
+    ):
+
+        request = GetOrdersRequest(
+            status=QueryOrderStatus.ALL,
+            after=start,
+            until=end,
+            limit=500
+        )
+
+        return self.client.get_orders(
+            filter=request
+        )
 
 
     def get_clock(self):

@@ -148,6 +148,89 @@ def test_alpaca_broker_get_positions_and_clock():
 
     assert broker.get_clock() == "test-clock"
 
+
+def test_alpaca_broker_explicitly_declares_paper_mode():
+
+    assert AlpacaPaperBroker.is_paper is True
+
+
+def test_alpaca_broker_get_open_orders():
+
+    from alpaca.trading.enums import (
+        QueryOrderStatus
+    )
+
+    class FakeClient:
+
+        def __init__(self):
+            self.order_filter = None
+
+        def get_orders(self, filter):
+            self.order_filter = filter
+            return ["open-order"]
+
+    broker = AlpacaPaperBroker.__new__(
+        AlpacaPaperBroker
+    )
+    broker.client = FakeClient()
+
+    result = broker.get_open_orders()
+
+    assert result == ["open-order"]
+    assert (
+        broker.client.order_filter.status
+        == QueryOrderStatus.OPEN
+    )
+
+
+def test_alpaca_broker_get_order_history():
+
+    from datetime import datetime, timezone
+    from alpaca.trading.enums import (
+        QueryOrderStatus
+    )
+
+    class FakeClient:
+
+        def __init__(self):
+            self.order_filter = None
+
+        def get_orders(self, filter):
+            self.order_filter = filter
+            return ["historical-order"]
+
+    start = datetime(
+        2026,
+        9,
+        9,
+        tzinfo=timezone.utc
+    )
+    end = datetime(
+        2026,
+        9,
+        10,
+        tzinfo=timezone.utc
+    )
+    broker = AlpacaPaperBroker.__new__(
+        AlpacaPaperBroker
+    )
+    broker.client = FakeClient()
+
+    result = broker.get_order_history(
+        start,
+        end
+    )
+
+    assert result == ["historical-order"]
+    assert (
+        broker.client.order_filter.status
+        == QueryOrderStatus.ALL
+    )
+    assert broker.client.order_filter.after == start
+    assert broker.client.order_filter.until == end
+    assert broker.client.order_filter.limit == 500
+    assert broker.client.order_filter.limit == 500
+
 def test_alpaca_broker_passes_client_order_id():
 
     from src.order import Order
