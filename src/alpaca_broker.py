@@ -99,11 +99,15 @@ class AlpacaPaperBroker(Broker):
 
         request_data = {
             "symbol": order.symbol,
-            "qty": order.quantity,
             "side": side,
             "time_in_force":
                 TimeInForce.DAY
         }
+
+        if order.notional is not None:
+            request_data["notional"] = order.notional
+        else:
+            request_data["qty"] = order.quantity
 
 
         if client_order_id is not None:
@@ -232,6 +236,13 @@ class AlpacaPaperBroker(Broker):
                 "shortable",
                 False
             )
+        )
+
+    def supports_notional_order(self, symbol):
+        asset = self.get_asset(symbol)
+        return (
+            getattr(asset, "tradable", False)
+            and getattr(asset, "fractionable", False)
         )
 
     def get_order_by_client_id(

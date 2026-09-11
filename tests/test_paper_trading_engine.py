@@ -1,5 +1,6 @@
 import pytest
 from pathlib import Path
+from types import SimpleNamespace
 from src.portfolio import Portfolio
 from src.paper_trading_engine import PaperTradingEngine
 from src.strategy import (
@@ -1047,6 +1048,24 @@ class ReconciliationClock:
         "2026-09-09 16:00:00",
         tz="America/New_York"
     )
+
+
+def test_filled_notional_order_is_recognized_without_requested_quantity():
+    order = SimpleNamespace(
+        status=PendingOrderStatus("filled"),
+        qty=None,
+        notional="5882.35",
+        filled_qty="31.5",
+    )
+    engine = PaperTradingEngine(
+        broker=object(),
+        market_data=object(),
+        trading_engine=object(),
+        symbols=["AAPL"],
+        state_file=None,
+    )
+
+    assert engine._is_fully_filled(order)
 
 
 class ReconciliationBroker:

@@ -11,8 +11,10 @@ from src.execution import ExecutionHandler
 from src.trading_engine import TradingEngine
 from src.strategy_factory import build_strategy
 from scripts.run_paper_strategy import (
-    _require_paper_broker
+    _execution_feed_for_strategy,
+    _require_paper_broker,
 )
+from alpaca.data.enums import DataFeed
 import pandas as pd
 import numpy as np
 import pytest
@@ -43,6 +45,11 @@ def test_paper_runner_rejects_broker_without_paper_mode(
         match="explicitly paper-mode broker"
     ):
         _require_paper_broker(broker)
+
+
+def test_volatility_paper_profile_explicitly_selects_sip_execution_data():
+    assert _execution_feed_for_strategy("volatility_20") == DataFeed.SIP
+    assert _execution_feed_for_strategy("moving_average") == DataFeed.IEX
 
 
 def test_synced_portfolio_does_not_duplicate_order():

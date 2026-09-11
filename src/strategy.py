@@ -16,6 +16,7 @@ from src.research.pca import (
 )
 
 from src.research.common import calculate_zscore, normalize_positions
+from src.research.universes import LARGE_LIQUID_US_EQUITIES_V1
 import pandas as pd
 import numpy as np
 
@@ -37,6 +38,98 @@ class TradingStrategy(ABC):
     @abstractmethod
     def generate_target_weights(self, history):
         pass
+
+
+class Volatility20Strategy(TradingStrategy):
+    """Frozen volatility_20 V1 long-only paper strategy.
+
+    Research status: Validation PASS; Historical Holdout PASS.
+    Historical Holdout consumed: 2026-01-01 through 2026-09-10.
+    """
+
+    feature_window = 20
+    selection_fraction = 0.20
+    paper_order_mode = "notional"
+
+    def __init__(self, symbols=None):
+        super().__init__("Volatility 20 V1")
+        frozen_symbols = tuple(LARGE_LIQUID_US_EQUITIES_V1)
+        symbols_used = frozen_symbols if symbols is None else tuple(symbols)
+        if symbols_used != frozen_symbols:
+            raise ValueError(
+                "volatility_20 V1 requires the exact frozen 88-stock universe"
+            )
+
+        self.symbols = frozen_symbols
+        self.last_signal_date = None
+        self.last_scores = pd.Series(dtype=float, name="volatility_20")
+        self.last_ranking = pd.DataFrame(
+            columns=["symbol", "volatility_20", "rank", "target_weight"]
+        )
+
+    def calculate_scores(self, history):
+        if not isinstance(history, pd.DataFrame):
+            raise TypeError("history must be a DataFrame")
+        if history.empty:
+            raise ValueError("history cannot be empty")
+        if not isinstance(history.index, pd.DatetimeIndex):
+            raise ValueError("history must use a DatetimeIndex")
+        if not history.index.is_unique:
+            raise ValueError("history index must be unique")
+        if not history.index.is_monotonic_increasing:
+            raise ValueError("history index must be chronological")
+
+        scores = {}
+        for symbol in self.symbols:
+            if symbol not in history.columns:
+                continue
+
+            close = pd.to_numeric(history[symbol], errors="coerce").astype(float)
+            valid_close = np.isfinite(close) & (close > 0)
+            close = close.where(valid_close)
+            returns = close.pct_change(fill_method=None)
+            volatility = returns.rolling(self.feature_window).std()
+            score = volatility.iloc[-1]
+            if pd.notna(score) and np.isfinite(score):
+                scores[symbol] = float(score)
+
+        result = pd.Series(scores, dtype=float, name="volatility_20")
+        self.last_signal_date = history.index[-1]
+        self.last_scores = result.copy()
+        return result
+
+    def generate_target_weights(self, history):
+        scores = self.calculate_scores(history)
+        number_eligible = len(scores)
+        selection_count = int(
+            np.floor(number_eligible * self.selection_fraction)
+        )
+        if selection_count < 1:
+            raise ValueError(
+                "insufficient completed history to form a volatility quintile"
+            )
+
+        ranking = (
+            scores.rename("volatility_20")
+            .rename_axis("symbol")
+            .reset_index()
+            .sort_values(
+                ["volatility_20", "symbol"],
+                ascending=[False, True],
+            )
+            .reset_index(drop=True)
+        )
+        ranking["rank"] = np.arange(1, number_eligible + 1)
+        ranking["target_weight"] = 0.0
+        selected_rows = ranking.index[:selection_count]
+        ranking.loc[selected_rows, "target_weight"] = 1.0 / selection_count
+
+        target_weights = {symbol: 0.0 for symbol in self.symbols}
+        target_weights.update(
+            ranking.set_index("symbol")["target_weight"].to_dict()
+        )
+        self.last_ranking = ranking
+        return target_weights
 
 class AlwaysBuyStrategy(Strategy):
 

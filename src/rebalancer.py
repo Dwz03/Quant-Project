@@ -1,8 +1,69 @@
 from .portfolio import Portfolio
 from .order import Order
 from .events import OrderEvent
+import math
+
+
+MIN_REBALANCE_NOTIONAL = 1.0
 
 class Rebalancer:
+
+    def generate_notional_orders(
+        self,
+        target_weights,
+        account_equity,
+        current_market_values,
+        min_rebalance_notional=MIN_REBALANCE_NOTIONAL,
+    ):
+        account_equity = float(account_equity)
+        min_rebalance_notional = float(min_rebalance_notional)
+        if not math.isfinite(account_equity) or account_equity <= 0:
+            raise ValueError("account equity must be positive")
+        if (
+            not math.isfinite(min_rebalance_notional)
+            or min_rebalance_notional < 0
+        ):
+            raise ValueError("minimum rebalance notional cannot be negative")
+
+        sell_orders = []
+        buy_orders = []
+        all_symbols = sorted(
+            set(target_weights) | set(current_market_values)
+        )
+
+        for symbol in all_symbols:
+            target_weight = float(target_weights.get(symbol, 0.0))
+            current_value = float(current_market_values.get(symbol, 0.0))
+            if not math.isfinite(target_weight) or target_weight < 0:
+                raise ValueError("notional rebalance requires long-only weights")
+            if not math.isfinite(current_value) or current_value < 0:
+                raise ValueError("notional rebalance requires long-only positions")
+
+            target_notional = account_equity * target_weight
+            delta_notional = target_notional - current_value
+            if abs(delta_notional) <= min_rebalance_notional:
+                continue
+
+            if delta_notional > 0:
+                buy_orders.append(
+                    Order(
+                        symbol=symbol,
+                        side="BUY",
+                        notional=delta_notional,
+                    )
+                )
+            else:
+                sell_notional = min(abs(delta_notional), current_value)
+                if sell_notional > min_rebalance_notional:
+                    sell_orders.append(
+                        Order(
+                            symbol=symbol,
+                            side="SELL",
+                            notional=sell_notional,
+                        )
+                    )
+
+        return sell_orders + buy_orders
 
     def generate_orders(self, target_weights, portfolio, prices):
 
@@ -102,9 +163,3 @@ class Rebalancer:
             order_events.append(OrderEvent(order))
 
         return order_events
-
-
-
-
-
-    

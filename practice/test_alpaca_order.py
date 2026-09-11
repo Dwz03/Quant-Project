@@ -1,13 +1,18 @@
 from src.alpaca_broker import AlpacaPaperBroker
-from src.order import Order
 
 
-broker = AlpacaPaperBroker()
+def test_alpaca_cancel_order_delegates_to_offline_client():
+    class FakeTradingClient:
+        def __init__(self):
+            self.cancelled_order_ids = []
 
-broker.cancel_order(
-    "cd011cdd-721f-4b65-8d35-9f93e58975f9"
-)
+        def cancel_order_by_id(self, order_id):
+            self.cancelled_order_ids.append(order_id)
 
-broker.cancel_order(
-    "ba840d91-a56d-407c-a1a3-4800211fd60a"
-)
+    broker = AlpacaPaperBroker.__new__(AlpacaPaperBroker)
+    broker.client = FakeTradingClient()
+
+    result = broker.cancel_order("offline-test-order")
+
+    assert result is True
+    assert broker.client.cancelled_order_ids == ["offline-test-order"]

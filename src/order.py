@@ -1,15 +1,20 @@
+import math
+
+
 class Order:
 
     def __init__(
         self,
         symbol,
-        quantity,
-        side,
-        client_order_id=None
+        quantity=None,
+        side=None,
+        client_order_id=None,
+        notional=None,
     ):
 
         self.symbol = symbol
         self.quantity = quantity
+        self.notional = notional
         self.side = side
 
         self.client_order_id = (
@@ -29,18 +34,27 @@ class Order:
                 "symbol cannot be empty"
             )
 
-        if not isinstance(
-            self.quantity,
-            (int, float)
-        ):
-            raise TypeError(
-                "quantity must be a number"
+        if (self.quantity is None) == (self.notional is None):
+            raise ValueError(
+                "exactly one of quantity or notional is required"
             )
 
-        if self.quantity <= 0:
-            raise ValueError(
-                "quantity must be positive"
-            )
+        value = (
+            self.quantity
+            if self.quantity is not None
+            else self.notional
+        )
+        field_name = (
+            "quantity"
+            if self.quantity is not None
+            else "notional"
+        )
+
+        if not isinstance(value, (int, float)):
+            raise TypeError(f"{field_name} must be a number")
+
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(f"{field_name} must be positive")
 
         if self.side not in (
             "BUY",
@@ -53,6 +67,9 @@ class Order:
 
     def remaining_quantity(self):
 
+        if self.quantity is None:
+            raise ValueError("notional orders do not have a fixed quantity")
+
         return (
             self.quantity
             - self.filled_quantity
@@ -63,6 +80,9 @@ class Order:
         self,
         quantity
     ):
+
+        if self.quantity is None:
+            raise ValueError("notional orders do not have a fixed quantity")
 
         new_filled_quantity = (
             self.filled_quantity
@@ -105,4 +125,3 @@ class Order:
                 "filled quantity exceeds "
                 "order quantity"
             )
-    

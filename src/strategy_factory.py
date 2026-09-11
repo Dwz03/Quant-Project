@@ -4,6 +4,7 @@ from .strategy import (
     MeanReversionTradingStrategy,
     PairsTradingStrategy,
     PCAResidualTradingStrategy,
+    Volatility20Strategy,
 )
 
 
@@ -29,7 +30,18 @@ def build_strategy(
     )
 
 
-    if strategy_name == "momentum":
+    if strategy_name == "volatility_20":
+
+        return Volatility20Strategy(
+            symbols=(
+                None
+                if not symbols
+                else symbols
+            )
+        )
+
+
+    elif strategy_name == "momentum":
 
         return MomentumTradingStrategy(
 

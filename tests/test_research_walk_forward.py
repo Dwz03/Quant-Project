@@ -6,6 +6,7 @@ from src.research.experiment import StrategyEvaluation
 from src.research.validation import apply_transaction_costs
 from src.research.walk_forward import (
     WalkForwardConfig,
+    generate_expanding_window_folds,
     generate_walk_forward_folds,
     run_walk_forward,
 )
@@ -53,6 +54,33 @@ def test_generate_walk_forward_folds_expands_train_and_orders_all_windows():
         for fold in folds
         for index in fold.test.index
     ])
+    assert stitched_test_index.is_unique
+
+
+def test_generate_expanding_window_folds_uses_each_unseen_observation_once():
+    folds = generate_expanding_window_folds(
+        price_data(length=11),
+        initial_train_size=4,
+        test_size=3,
+    )
+
+    assert [len(fold.train) for fold in folds] == [4, 7, 10]
+    assert [fold.test.index.tolist() for fold in folds] == [
+        [4, 5, 6],
+        [7, 8, 9],
+        [10],
+    ]
+
+    for fold in folds:
+        assert fold.train.index[-1] < fold.test.index[0]
+        assert not fold.train.index.isin(fold.test.index).any()
+
+    stitched_test_index = pd.Index([
+        index
+        for fold in folds
+        for index in fold.test.index
+    ])
+    assert stitched_test_index.tolist() == list(range(4, 11))
     assert stitched_test_index.is_unique
 
 

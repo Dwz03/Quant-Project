@@ -368,8 +368,58 @@ def test_can_short():
         broker.can_short(
             "AAPL"
         )
-        is True
+    is True
     )
+
+
+def test_alpaca_paper_broker_submits_notional_without_quantity():
+    class FakeBrokerOrder:
+        id = "broker-notional-123"
+
+    class FakeClient:
+        def submit_order(self, order_data):
+            self.request = order_data
+            return FakeBrokerOrder()
+
+    broker = AlpacaPaperBroker.__new__(AlpacaPaperBroker)
+    broker.client = FakeClient()
+    order = Order(symbol="AAPL", side="BUY", notional=5882.35)
+
+    assert broker.submit_order(order) == "broker-notional-123"
+    assert broker.client.request.notional == pytest.approx(5882.35)
+    assert broker.client.request.qty is None
+    assert broker.client.request.type.value == "market"
+    assert broker.client.request.time_in_force.value == "day"
+
+
+@pytest.mark.parametrize(
+    ("tradable", "fractionable", "expected"),
+    [
+        (True, True, True),
+        (False, True, False),
+        (True, False, False),
+    ],
+)
+def test_notional_order_eligibility_requires_tradable_and_fractionable(
+    tradable,
+    fractionable,
+    expected,
+):
+    class FakeClient:
+        def get_asset(self, symbol):
+            return type(
+                "FakeAsset",
+                (),
+                {
+                    "tradable": tradable,
+                    "fractionable": fractionable,
+                },
+            )()
+
+    broker = AlpacaPaperBroker.__new__(AlpacaPaperBroker)
+    broker.client = FakeClient()
+
+    assert broker.supports_notional_order("AAPL") is expected
 
 def test_cannot_short_unshortable_asset():
 

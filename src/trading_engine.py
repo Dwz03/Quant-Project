@@ -147,41 +147,14 @@ class TradingEngine:
         if self.broker is None:
             raise ValueError("broker is required for broker cycle")
 
-        if history.empty:
-            raise ValueError("history cannot be empty")
-
-        target_weights = (
-            self.strategy.generate_target_weights(history)
+        plan = self.preview_broker_cycle(
+            history,
+            execution_prices=execution_prices,
         )
-
-        prices = (
-            history.iloc[-1].to_dict()
-            if execution_prices is None
-            else dict(execution_prices)
-        )
-
-        orders = self.rebalancer.generate_orders(
-            target_weights,
-            self.portfolio,
-            prices
-        )
-
-        order_symbols = [
-            order.symbol
-            for order in orders
-        ]
-
-        if len(order_symbols) != len(
-            set(order_symbols)
-        ):
-            raise ValueError(
-                "broker batch cannot contain "
-                "duplicate symbols"
-            )
 
         if cycle_key is not None:
 
-            for order in orders:
+            for order in plan["accepted_orders"]:
 
                 order.client_order_id = (
                     self._build_client_order_id(
@@ -190,7 +163,56 @@ class TradingEngine:
                     )
                 )
 
+        for rejection in plan["rejected_orders"]:
+            order = rejection["order"]
+            logger.warning(
+                "%s %s rejected: %s",
+                order.symbol,
+                order.side,
+                rejection["reason"],
+            )
+
         submitted_orders = []
+        for order in plan["accepted_orders"]:
+            broker_order = self.broker.submit_order(order)
+            submitted_orders.append(broker_order)
+
+        return {
+            "target_weights": plan["target_weights"],
+            "orders": plan["orders"],
+            "accepted_orders": plan["accepted_orders"],
+            "rejected_orders": plan["rejected_orders"],
+            "submitted_orders": submitted_orders,
+        }
+
+    def preview_broker_cycle(
+        self,
+        history,
+        execution_prices=None,
+    ):
+        """Plan and risk-check a broker cycle without submitting orders."""
+        if history.empty:
+            raise ValueError("history cannot be empty")
+
+        target_weights = self.strategy.generate_target_weights(history)
+        prices = (
+            history.iloc[-1].to_dict()
+            if execution_prices is None
+            else dict(execution_prices)
+        )
+        orders = self.rebalancer.generate_orders(
+            target_weights,
+            self.portfolio,
+            prices,
+        )
+        order_symbols = [order.symbol for order in orders]
+        if len(order_symbols) != len(set(order_symbols)):
+            raise ValueError(
+                "broker batch cannot contain duplicate symbols"
+            )
+
+        accepted_orders = []
+        rejected_orders = []
         cumulative_fill_projection = copy.deepcopy(
             self.portfolio
         )
@@ -230,13 +252,10 @@ class TradingEngine:
                 cumulative_risk_ok
                 and conservative_risk_ok
             ):
-
-                logger.warning(
-                    "%s %s rejected by risk manager",
-                    order.symbol,
-                    order.side
-                )
-
+                rejected_orders.append({
+                    "order": order,
+                    "reason": "risk manager",
+                })
                 continue
 
 
@@ -244,26 +263,11 @@ class TradingEngine:
                 order,
                 portfolio=cumulative_fill_projection
             ):
-
-                logger.warning(
-                    "%s %s rejected: "
-                    "asset/account cannot short",
-                    order.symbol,
-                    order.side
-                )
-
+                rejected_orders.append({
+                    "order": order,
+                    "reason": "asset/account cannot short",
+                })
                 continue
-
-
-            broker_order = (
-                self.broker.submit_order(
-                    order
-                )
-            )
-
-            submitted_orders.append(
-                broker_order
-            )
 
             self._apply_projected_fill(
                 cumulative_fill_projection,
@@ -273,12 +277,161 @@ class TradingEngine:
             conservative_risk_projection = (
                 conservative_candidate
             )
+            accepted_orders.append(order)
 
         return {
             "target_weights": target_weights,
             "orders": orders,
-            "submitted_orders": submitted_orders
+            "accepted_orders": accepted_orders,
+            "rejected_orders": rejected_orders,
+            "execution_prices": prices,
         }
+
+    def run_notional_broker_cycle(
+        self,
+        history,
+        account_equity,
+        current_position_market_values,
+        available_buying_power,
+        cycle_key=None,
+    ):
+        if self.broker is None:
+            raise ValueError("broker is required for broker cycle")
+
+        plan = self.preview_notional_broker_cycle(
+            history=history,
+            account_equity=account_equity,
+            current_position_market_values=current_position_market_values,
+            available_buying_power=available_buying_power,
+        )
+        if cycle_key is not None:
+            for order in plan["accepted_orders"]:
+                order.client_order_id = self._build_client_order_id(
+                    cycle_key,
+                    order,
+                )
+
+        for rejection in plan["rejected_orders"]:
+            order = rejection["order"]
+            logger.warning(
+                "%s %s notional order rejected: %s",
+                order.symbol,
+                order.side,
+                rejection["reason"],
+            )
+
+        submitted_orders = [
+            self.broker.submit_order(order)
+            for order in plan["accepted_orders"]
+        ]
+        return {
+            **plan,
+            "submitted_orders": submitted_orders,
+        }
+
+    def preview_notional_broker_cycle(
+        self,
+        history,
+        account_equity,
+        current_position_market_values,
+        available_buying_power,
+    ):
+        """Plan a long-only broker rebalance without external prices."""
+        if history.empty:
+            raise ValueError("history cannot be empty")
+
+        target_weights = self.strategy.generate_target_weights(history)
+        current_values = {
+            symbol: float(value)
+            for symbol, value in current_position_market_values.items()
+        }
+        all_symbols = sorted(set(target_weights) | set(current_values))
+        target_notionals = {
+            symbol: account_equity * float(target_weights.get(symbol, 0.0))
+            for symbol in all_symbols
+        }
+        delta_notionals = {
+            symbol: target_notionals[symbol] - current_values.get(symbol, 0.0)
+            for symbol in all_symbols
+        }
+        orders = self.rebalancer.generate_notional_orders(
+            target_weights=target_weights,
+            account_equity=account_equity,
+            current_market_values=current_values,
+        )
+        order_symbols = [order.symbol for order in orders]
+        if len(order_symbols) != len(set(order_symbols)):
+            raise ValueError("broker batch cannot contain duplicate symbols")
+
+        required_symbols = {
+            symbol
+            for symbol, weight in target_weights.items()
+            if weight > 0
+        } | set(order_symbols)
+        self._validate_notional_assets(required_symbols)
+
+        accepted_orders = []
+        rejected_orders = []
+        projected_values = dict(current_values)
+        remaining_buying_power = float(available_buying_power)
+        for order in orders:
+            risk_ok = self.risk_manager.check_notional_order(
+                order=order,
+                account_equity=account_equity,
+                current_position_market_values=projected_values,
+                available_buying_power=remaining_buying_power,
+            )
+            if not risk_ok:
+                rejected_orders.append({
+                    "order": order,
+                    "reason": "risk manager",
+                })
+                continue
+
+            current_value = projected_values.get(order.symbol, 0.0)
+            if order.side == "BUY":
+                projected_values[order.symbol] = current_value + order.notional
+                remaining_buying_power -= order.notional
+            else:
+                projected_values[order.symbol] = max(
+                    0.0,
+                    current_value - order.notional,
+                )
+            accepted_orders.append(order)
+
+        return {
+            "target_weights": target_weights,
+            "account_equity": account_equity,
+            "current_position_market_values": current_values,
+            "target_notionals": target_notionals,
+            "delta_notionals": delta_notionals,
+            "orders": orders,
+            "accepted_orders": accepted_orders,
+            "rejected_orders": rejected_orders,
+            "execution_prices": None,
+        }
+
+    def _validate_notional_assets(self, symbols):
+        supports_notional = getattr(
+            self.broker,
+            "supports_notional_order",
+            None,
+        )
+        if not callable(supports_notional):
+            raise RuntimeError(
+                "broker cannot verify tradable/fractionable notional eligibility"
+            )
+
+        unsupported = [
+            symbol
+            for symbol in sorted(symbols)
+            if supports_notional(symbol) is not True
+        ]
+        if unsupported:
+            raise RuntimeError(
+                "required symbols are not tradable and fractionable for "
+                f"notional orders: {', '.join(unsupported)}"
+            )
 
     def run(self, prices):
 

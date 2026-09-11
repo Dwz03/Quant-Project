@@ -1,5 +1,6 @@
 from .order import Order
 from .portfolio import Portfolio
+import math
 
 class RiskManager:
 
@@ -166,6 +167,64 @@ class RiskManager:
 
         return max_position_ok and cash_ok and leverage_ok
 
+    def check_notional_order(
+        self,
+        order,
+        account_equity,
+        current_position_market_values,
+        available_buying_power,
+    ):
+        """Risk-check one long-only notional order in dollar space."""
+        if order.notional is None or order.quantity is not None:
+            raise ValueError("a notional order is required")
+        account_equity = float(account_equity)
+        available_buying_power = float(available_buying_power)
+        if not math.isfinite(account_equity) or account_equity <= 0:
+            raise ValueError("account equity must be positive")
+        if (
+            not math.isfinite(available_buying_power)
+            or available_buying_power < 0
+        ):
+            raise ValueError("available buying power cannot be negative")
+
+        current_values = {
+            symbol: float(value)
+            for symbol, value in current_position_market_values.items()
+        }
+        if any(
+            not math.isfinite(value) or value < 0
+            for value in current_values.values()
+        ):
+            raise ValueError("notional risk checks require long-only positions")
+
+        comparison_tolerance = account_equity * 1e-12
+        current_value = current_values.get(order.symbol, 0.0)
+        if order.side == "BUY":
+            projected_value = current_value + order.notional
+            cash_ok = order.notional <= (
+                available_buying_power + comparison_tolerance
+            )
+        elif order.side == "SELL":
+            if order.notional > current_value:
+                return False
+            projected_value = max(0.0, current_value - order.notional)
+            cash_ok = True
+        else:
+            raise ValueError("order side must be buy or sell")
+
+        projected_values = dict(current_values)
+        projected_values[order.symbol] = projected_value
+        max_position_ok = projected_value <= (
+            self.max_position_pct * account_equity
+            + comparison_tolerance
+        )
+        projected_gross = sum(abs(value) for value in projected_values.values())
+        leverage_ok = projected_gross <= (
+            self.max_leverage * account_equity
+            + comparison_tolerance
+        )
+        return max_position_ok and cash_ok and leverage_ok
+
     def check_net_exposure(self, portfolio, prices, max_net_exposure):
 
         net_ratio = portfolio.net_exposure_ratio(prices)
@@ -194,9 +253,6 @@ class RiskManager:
 
     
         
-
-
-
 
 
 

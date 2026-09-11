@@ -56,6 +56,55 @@ class WalkForwardFold:
 
 
 @dataclass(frozen=True)
+class ExpandingWindowFold:
+    fold: int
+    train: pd.DataFrame
+    test: pd.DataFrame
+
+
+def generate_expanding_window_folds(
+    data: pd.DataFrame,
+    initial_train_size: int,
+    test_size: int,
+) -> tuple[ExpandingWindowFold, ...]:
+    """Build expanding train windows followed by contiguous unseen test blocks."""
+    sizes = {
+        "initial_train_size": initial_train_size,
+        "test_size": test_size,
+    }
+    for name, value in sizes.items():
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise TypeError(f"{name} must be an integer")
+        if value <= 0:
+            raise ValueError(f"{name} must be positive")
+
+    if data.empty:
+        raise ValueError("data cannot be empty")
+    if not data.index.is_monotonic_increasing:
+        raise ValueError("data index must be chronological")
+    if not data.index.is_unique:
+        raise ValueError("data index must be unique")
+    if initial_train_size >= len(data):
+        raise ValueError("not enough data for the first walk-forward fold")
+
+    folds = []
+    train_end = initial_train_size
+    fold_number = 1
+
+    while train_end < len(data):
+        test_end = min(train_end + test_size, len(data))
+        folds.append(ExpandingWindowFold(
+            fold=fold_number,
+            train=data.iloc[:train_end].copy(),
+            test=data.iloc[train_end:test_end].copy(),
+        ))
+        train_end = test_end
+        fold_number += 1
+
+    return tuple(folds)
+
+
+@dataclass(frozen=True)
 class WalkForwardFoldResult:
     fold: WalkForwardFold
     selected_parameters: Mapping[str, Any]
