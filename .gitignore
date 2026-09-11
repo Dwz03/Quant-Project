@@ -19,4 +19,85 @@ __pycache__/
 research_results/
 
 
+# =========================
+# Data / generated artifacts
+# =========================
+
+data/raw/
+data/processed/
+data/cache/
+
+artifacts/logs/
+artifacts/paper/
+
+# Large/generated data formats
+*.parquet
+*.feather
+*.pkl
+*.pickle
+
+# Optional: local CSV outputs
+# 如果你的 csv 大多是临时研究结果，可以打开这一条；
+# 但 tests/fixtures 里的小 csv 最好继续 commit
+# *.csv
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# =========================
+# Virtual environment
+# =========================
+.venv/
+venv/
+
+# =========================
+# Secrets
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# macOS / IDE
+# =========================
 .DS_Store
+.vscode/
+.idea/
+
+# =========================
+# Market / research data
+# =========================
+
+# Ignore generated/downloaded data,
+# but allow documentation / metadata files.
+data/*
+!data/README.md
+!data/manifest.json
+!data/*.md
+
+# Common large data formats
+*.parquet
+*.feather
+*.pkl
+*.pickle
+
+# =========================
+# Runtime / paper trading logs
+# =========================
+logs/
+*.log
+
+# =========================
+# Generated research results
+# =========================
+research/research_results/
+
+# =========================
+# Temporary files
+# =========================
+*.tmp
+*.temp
