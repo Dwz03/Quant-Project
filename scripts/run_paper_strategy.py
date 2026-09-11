@@ -122,6 +122,20 @@ def main():
 
     strategy_config = {
 
+        "short_window": int(
+            os.getenv(
+                "STRATEGY_SHORT_WINDOW",
+                "10"
+            )
+        ),
+
+        "long_window": int(
+            os.getenv(
+                "STRATEGY_LONG_WINDOW",
+                "30"
+            )
+        ),
+
         "lookback": int(
             os.getenv(
                 "STRATEGY_LOOKBACK",
@@ -199,7 +213,14 @@ def main():
             trading_engine=trading_engine,
             symbols=symbols,
 
-            lookback_days=90,
+            lookback_days=max(
+                90,
+                getattr(
+                    strategy,
+                    "long_window",
+                    0
+                ) * 2
+            ),
 
             # Daily strategy runs once
             # during the final 15 min.

@@ -140,7 +140,8 @@ class TradingEngine:
     def run_broker_cycle(
         self,
         history,
-        cycle_key=None
+        cycle_key=None,
+        execution_prices=None
     ):
 
         if self.broker is None:
@@ -153,7 +154,11 @@ class TradingEngine:
             self.strategy.generate_target_weights(history)
         )
 
-        prices = history.iloc[-1].to_dict()
+        prices = (
+            history.iloc[-1].to_dict()
+            if execution_prices is None
+            else dict(execution_prices)
+        )
 
         orders = self.rebalancer.generate_orders(
             target_weights,

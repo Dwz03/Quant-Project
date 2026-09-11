@@ -56,10 +56,22 @@ def build_strategy(
     ):
 
         return MovingAverageTradingStrategy(
-            short_window=10,
-            long_window=30,
-            target_weight=0.01,
-            allow_short=False
+            short_window=config.get(
+                "short_window",
+                10
+            ),
+            long_window=config.get(
+                "long_window",
+                30
+            ),
+            target_weight=config.get(
+                "target_weight",
+                0.01
+            ),
+            allow_short=config.get(
+                "allow_short",
+                False
+            )
         )
 
 

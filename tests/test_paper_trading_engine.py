@@ -2,7 +2,10 @@ import pytest
 from pathlib import Path
 from src.portfolio import Portfolio
 from src.paper_trading_engine import PaperTradingEngine
-from src.strategy import MomentumTradingStrategy
+from src.strategy import (
+    MomentumTradingStrategy,
+    MovingAverageTradingStrategy,
+)
 from src.trading_engine import TradingEngine
 from src.execution import ExecutionHandler
 from src.risk_manager import RiskManager
@@ -490,6 +493,127 @@ def test_paper_trading_engine_open_market_end_to_end():
 
     assert msft_position.quantity < 0
 
+
+def test_moving_average_paper_engine_end_to_end():
+
+    class FakeMarketData:
+
+        def get_history(self, symbols, start, end):
+            return pd.DataFrame(
+                {
+                    "AAPL": [100, 101, 102, 103],
+                    "MSFT": [200, 199, 198, 197]
+                },
+                index=pd.date_range(
+                    "2026-01-01",
+                    periods=4
+                )
+            )
+
+        def get_latest_price(self, symbol):
+            return {
+                "AAPL": 50,
+                "MSFT": 400
+            }[symbol]
+
+    class FakeClock:
+        is_open = True
+
+    class FakeAccount:
+        cash = "10000"
+        equity = "10000"
+
+    class FakeBroker:
+
+        def __init__(self):
+            self.submitted = []
+
+        def get_clock(self):
+            return FakeClock()
+
+        def get_account(self):
+            return FakeAccount()
+
+        def get_positions(self):
+            return []
+
+        def get_open_orders(self):
+            return []
+
+        def get_order_history(self, start, end):
+            return []
+
+        def can_short(self, symbol):
+            return True
+
+        def submit_order(self, order):
+            self.submitted.append(order)
+            return f"fake-{order.symbol}"
+
+    class CapturingMovingAverageStrategy(
+        MovingAverageTradingStrategy
+    ):
+
+        def generate_target_weights(self, history):
+            self.received_history = history.copy()
+            return super().generate_target_weights(
+                history
+            )
+
+    broker = FakeBroker()
+    strategy = CapturingMovingAverageStrategy(
+        short_window=2,
+        long_window=4,
+        target_weight=0.10,
+        allow_short=True
+    )
+    trading_engine = TradingEngine(
+        Portfolio(10000),
+        RiskManager(
+            max_position_pct=0.20,
+            max_leverage=1.0
+        ),
+        ExecutionHandler(
+            commission_rate=0.0,
+            slippage_rate=0.0
+        ),
+        Rebalancer(),
+        strategy,
+        broker=broker
+    )
+    trading_engine.wait_for_orders = (
+        lambda order_ids, timeout, poll_interval: []
+    )
+    paper_engine = PaperTradingEngine(
+        broker=broker,
+        market_data=FakeMarketData(),
+        trading_engine=trading_engine,
+        symbols=["AAPL", "MSFT"],
+        lookback_days=30,
+        state_file=None
+    )
+
+    result = paper_engine.run_cycle()
+
+    assert result["status"] == "COMPLETED"
+    assert result["target_weights"] == {
+        "AAPL": 0.10,
+        "MSFT": -0.10
+    }
+    assert strategy.received_history.iloc[-1].to_dict() == {
+        "AAPL": 103,
+        "MSFT": 197
+    }
+
+    orders = {
+        order.symbol: order
+        for order in result["orders"]
+    }
+    assert orders["AAPL"].quantity == 20
+    assert orders["MSFT"].quantity == 2
+    assert broker.submitted == result["orders"]
+
+
 def test_paper_engine_skips_duplicate_cycle():
 
     class FakeClock:
@@ -602,7 +726,8 @@ def test_paper_engine_skips_duplicate_cycle():
         def run_broker_cycle(
             self,
             history,
-            cycle_key=None
+            cycle_key=None,
+            execution_prices=None
         ):
 
             self.run_count += 1
@@ -743,7 +868,8 @@ def test_paper_engine_kill_switch_after_failure():
         def run_broker_cycle(
             self,
             history,
-            cycle_key=None
+            cycle_key=None,
+            execution_prices=None
         ):
 
             self.run_count += 1
@@ -987,7 +1113,12 @@ class ReconciliationTradingEngine:
         self.run_count = 0
         self.wait_count = 0
 
-    def run_broker_cycle(self, history, cycle_key=None):
+    def run_broker_cycle(
+        self,
+        history,
+        cycle_key=None,
+        execution_prices=None
+    ):
         self.run_count += 1
 
         return {
@@ -1109,11 +1240,16 @@ def test_order_timeout_stays_alive_and_prevents_duplicate_batch():
         trading_engine.run_broker_cycle
     )
 
-    def run_broker_cycle(history, cycle_key=None):
+    def run_broker_cycle(
+        history,
+        cycle_key=None,
+        execution_prices=None
+    ):
         broker.order_history = [pending_order]
         return original_run_broker_cycle(
             history,
-            cycle_key=cycle_key
+            cycle_key=cycle_key,
+            execution_prices=execution_prices
         )
 
     trading_engine.run_broker_cycle = (

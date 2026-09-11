@@ -3,7 +3,12 @@ from src.risk_manager import RiskManager
 from src.execution import ExecutionHandler
 from src.rebalancer import Rebalancer
 from src.trading_engine import TradingEngine
-from src.strategy import MomentumStrategy, MeanReversionTradingStrategy, MomentumTradingStrategy
+from src.strategy import (
+    MomentumStrategy,
+    MeanReversionTradingStrategy,
+    MomentumTradingStrategy,
+    MovingAverageTradingStrategy,
+)
 from src.position import Position
 from src.order import Order
 import pytest
@@ -114,6 +119,41 @@ class ShortableBroker(FakeBroker):
 
     def can_short(self, symbol):
         return True
+
+
+def test_ma_data_failure_aborts_before_flattening_existing_position():
+
+    portfolio = Portfolio(9000)
+    portfolio._add_position(
+        Position("AAPL", 10, 100)
+    )
+    broker = FakeBroker()
+    engine = TradingEngine(
+        portfolio=portfolio,
+        risk_manager=RiskManager(1.0, 1.0),
+        execution=ExecutionHandler(0.0, 0.0),
+        rebalancer=Rebalancer(),
+        strategy=MovingAverageTradingStrategy(
+            short_window=2,
+            long_window=4,
+            allow_short=False
+        ),
+        broker=broker
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="insufficient completed history"
+    ):
+        engine.run_broker_cycle(
+            pd.DataFrame({
+                "AAPL": [100, 101, 102]
+            }),
+            execution_prices={"AAPL": 103}
+        )
+
+    assert portfolio.get_position("AAPL").quantity == 10
+    assert broker.submitted_orders == []
 
 
 class FixedOrderStrategy:

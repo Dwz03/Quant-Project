@@ -1,5 +1,10 @@
 from src.portfolio import Portfolio
-from src.strategy import MeanReversionTradingStrategy, PairsTradingStrategy, PCAResidualTradingStrategy
+from src.strategy import (
+    MeanReversionTradingStrategy,
+    MovingAverageTradingStrategy,
+    PairsTradingStrategy,
+    PCAResidualTradingStrategy,
+)
 from src.rebalancer import Rebalancer
 from src.risk_manager import RiskManager
 from src.execution import ExecutionHandler
@@ -415,6 +420,48 @@ def test_build_momentum_strategy():
         strategy.name
         == "Momentum"
     )
+
+
+@pytest.mark.parametrize(
+    "alias",
+    ["moving_average", "ma"]
+)
+def test_build_moving_average_strategy_aliases(alias):
+
+    strategy = build_strategy(alias)
+
+    assert isinstance(
+        strategy,
+        MovingAverageTradingStrategy
+    )
+
+
+def test_build_moving_average_strategy_propagates_config():
+
+    strategy = build_strategy(
+        "moving_average",
+        config={
+            "short_window": 5,
+            "long_window": 20,
+            "target_weight": 0.25,
+            "allow_short": True
+        }
+    )
+
+    assert strategy.short_window == 5
+    assert strategy.long_window == 20
+    assert strategy.target_weight == 0.25
+    assert strategy.allow_short is True
+
+
+def test_build_moving_average_strategy_defaults_remain_compatible():
+
+    strategy = build_strategy("moving_average")
+
+    assert strategy.short_window == 10
+    assert strategy.long_window == 30
+    assert strategy.target_weight == 0.01
+    assert strategy.allow_short is False
 
 def test_unknown_strategy():
 

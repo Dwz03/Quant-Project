@@ -1,5 +1,6 @@
 # Import
 from abc import ABC, abstractmethod
+from numbers import Integral, Real
 from .events import SignalEvent
 from src.research.pairs import (
     estimate_hedge_ratio,
@@ -497,10 +498,40 @@ class MovingAverageTradingStrategy(
             "Moving Average"
         )
 
+        if (
+            isinstance(short_window, bool)
+            or not isinstance(short_window, Integral)
+            or short_window <= 0
+        ):
+            raise ValueError(
+                "short_window must be a positive integer"
+            )
+
+        if (
+            isinstance(long_window, bool)
+            or not isinstance(long_window, Integral)
+            or long_window <= 0
+        ):
+            raise ValueError(
+                "long_window must be a positive integer"
+            )
+
         if short_window >= long_window:
             raise ValueError(
                 "short_window must be "
                 "smaller than long_window"
+            )
+
+        if (
+            isinstance(target_weight, bool)
+            or not isinstance(target_weight, Real)
+            or not np.isfinite(target_weight)
+            or target_weight < 0
+            or target_weight > 1
+        ):
+            raise ValueError(
+                "target_weight must be a finite number "
+                "between 0 and 1"
             )
 
         self.short_window = short_window
@@ -526,18 +557,37 @@ class MovingAverageTradingStrategy(
             prices = history[symbol]
 
             if len(prices) < self.long_window:
-                target_weights[symbol] = 0.0
-                continue
+                raise ValueError(
+                    f"insufficient completed history for {symbol}: "
+                    f"requires {self.long_window} observations"
+                )
+
+            required_prices = prices.iloc[
+                -self.long_window:
+            ]
+
+            try:
+                required_values = required_prices.to_numpy(
+                    dtype=float
+                )
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    f"required prices for {symbol} must be numeric"
+                ) from error
+
+            if not np.isfinite(required_values).all():
+                raise ValueError(
+                    f"required prices for {symbol} must be finite"
+                )
 
             short_ma = (
-                prices
+                required_prices
                 .iloc[-self.short_window:]
                 .mean()
             )
 
             long_ma = (
-                prices
-                .iloc[-self.long_window:]
+                required_prices
                 .mean()
             )
 

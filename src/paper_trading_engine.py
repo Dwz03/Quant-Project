@@ -385,9 +385,9 @@ class PaperTradingEngine:
             timezone.utc
         )
 
-        # Use completed historical bars only.
-        # The current market observation is added
-        # separately in add_latest_prices().
+        # Strategy signals use completed daily bars
+        # only. Current prices are fetched separately
+        # for execution and rebalancing.
         history = self.market_data.get_history(
             self.symbols,
             start=(
@@ -401,32 +401,6 @@ class PaperTradingEngine:
                 - timedelta(days=1)
             )
         )
-
-        return history
-
-
-    def add_latest_prices(
-        self,
-        history
-    ):
-
-        now = datetime.now(
-            timezone.utc
-        )
-
-        history = history.copy()
-
-        for symbol in self.symbols:
-
-            latest_price = (
-                self.market_data
-                .get_latest_price(symbol)
-            )
-
-            history.loc[
-                now,
-                symbol
-            ] = latest_price
 
         return history
 
@@ -511,9 +485,12 @@ class PaperTradingEngine:
                 "market history is empty"
             )
 
-        history = self.add_latest_prices(
-            history
-        )
+        execution_prices = {
+            symbol: self.market_data.get_latest_price(
+                symbol
+            )
+            for symbol in self.symbols
+        }
 
 
         # -------------------------
@@ -534,7 +511,8 @@ class PaperTradingEngine:
                 self.trading_engine
                 .run_broker_cycle(
                     history,
-                    cycle_key=cycle_key
+                    cycle_key=cycle_key,
+                    execution_prices=execution_prices
                 )
             )
 
