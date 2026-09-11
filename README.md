@@ -241,3 +241,65 @@ These are future research directions, not claims about completed functionality:
 ## 13. Disclaimer
 
 This repository is educational and research software. It is not financial advice, an investment recommendation, or a guarantee of trading performance. Paper-trading behavior does not ensure equivalent live-market results.
+
+## Strategy Registry
+
+The repository contains several strategy implementations, but implementation
+does not imply validated profitability or paper-trading readiness.
+
+Strategies move through the following lifecycle:
+
+Research
+    -> Validation
+    -> Historical Holdout
+    -> Paper Integration
+    -> Paper Forward Testing
+    -> Guarded Live Deployment
+
+A strategy should only enter paper trading after its research specification
+has been frozen and it has passed the required validation gates.
+
+| Strategy | CLI Name | Status | Signal Timing | Execution Timing | Paper Order Mode |
+|---|---|---|---|---|---|
+| Moving Average | `moving_average` | Paper-integrated | Completed daily bars | Final 15 minutes before US market close | Quantity |
+| Volatility 20 V1 | `volatility_20` | Historical Holdout PASS / Paper Preview PASS | Completed Close_t | First 5 minutes after next US market open | Notional |
+| Momentum | `momentum` | Engineering / research example | Strategy dependent | Not yet promoted to validated paper strategy | Quantity |
+| Mean Reversion | `mean_reversion` | Engineering / research example | Strategy dependent | Not yet promoted to validated paper strategy | Quantity |
+| Pairs | `pairs` | Research implementation | Strategy dependent | Not yet promoted to validated paper strategy | Quantity |
+| PCA Residual | `pca_residual` | Research implementation | Strategy dependent | Not yet promoted to validated paper strategy | Quantity |
+
+The execution schedule is considered part of the strategy specification.
+Different strategies therefore do not necessarily trade at the same time.
+
+---
+
+## Paper Trading
+
+The automated broker path is paper trading only.
+
+Before allowing a strategy to submit paper orders, run it in preview mode:
+
+```bash
+.venv/bin/python scripts/run_paper_strategy.py \
+    --strategy <strategy_name> \
+    --preview
+
+.venv/bin/python scripts/run_paper_strategy.py \
+    --strategy <strategy_name>
+
+.venv/bin/python scripts/run_paper_strategy.py \
+    --strategy moving_average \
+    --preview
+
+.venv/bin/python scripts/run_paper_strategy.py \
+    --strategy moving_average
+
+.venv/bin/python scripts/run_paper_strategy.py \
+    --strategy volatility_20 \
+    --preview
+
+.venv/bin/python scripts/run_paper_strategy.py \
+    --strategy volatility_20
+
+    
+
