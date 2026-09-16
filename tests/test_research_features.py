@@ -4,12 +4,16 @@ import pytest
 
 from src.research.features import (
     FEATURE_COLUMNS_V1,
+    MOMENTUM_FEATURE_COLUMNS,
     build_multi_asset_feature_panel,
+    build_multi_asset_momentum_panel,
+    build_momentum_features,
     build_price_features,
     calculate_cross_sectional_ic,
     calculate_feature_redundancy,
     run_multi_asset_feature_screen,
     run_cross_sectional_ic_by_period,
+    run_momentum_feature_screen,
     summarize_cross_sectional_ic,
     summarize_feature_stability,
     summarize_feature_screen,
@@ -21,6 +25,261 @@ def price_data(length=90, offset=0.0):
     steps = np.arange(length, dtype=float)
     close = 100.0 + offset + 0.2 * steps + 2.0 * np.sin(steps / 4.0)
     return pd.DataFrame({"Close": close}, index=index)
+
+
+def test_build_momentum_features_calculates_exact_multi_horizon_returns():
+    dates = pd.date_range("2020-01-01", periods=253)
+    close = pd.Series(np.arange(100.0, 353.0), index=dates)
+
+    result = build_momentum_features(pd.DataFrame({"Close": close}))
+
+    assert result.columns.tolist() == MOMENTUM_FEATURE_COLUMNS
+    for horizon in (5, 20, 60, 120, 252):
+        assert result.loc[dates[-1], f"momentum_{horizon}"] == pytest.approx(
+            close.iloc[-1] / close.iloc[-1 - horizon] - 1
+        )
+
+
+def test_build_momentum_features_keeps_insufficient_history_as_nan():
+    data = pd.DataFrame(
+        {"Close": [100.0, 102.0, 104.0, 106.0, 110.0, 110.0]},
+        index=pd.date_range("2024-01-01", periods=6),
+    )
+
+    result = build_momentum_features(data)
+
+    assert result["momentum_5"].iloc[:5].isna().all()
+    assert result["momentum_5"].iloc[5] == pytest.approx(0.10)
+    longer_horizons = [
+        "momentum_20", "momentum_60", "momentum_120", "momentum_252"
+    ]
+    assert result[longer_horizons].isna().all().all()
+
+
+def test_panel_momentum_is_calculated_independently_by_symbol():
+    dates = pd.date_range("2024-01-01", periods=6)
+    index = pd.MultiIndex.from_product(
+        [dates, ["AAA", "BBB"]],
+        names=["date", "symbol"],
+    )
+    panel = pd.DataFrame({
+        "Close": np.column_stack([
+            [100.0, 101.0, 102.0, 103.0, 104.0, 110.0],
+            [200.0, 190.0, 180.0, 170.0, 160.0, 150.0],
+        ]).reshape(-1),
+    }, index=index)
+
+    result = build_momentum_features(panel)
+
+    assert result.loc[(dates[-1], "AAA"), "momentum_5"] == pytest.approx(0.10)
+    assert result.loc[(dates[-1], "BBB"), "momentum_5"] == pytest.approx(-0.25)
+    assert result.groupby(level="symbol")["momentum_5"].apply(
+        lambda values: values.iloc[:5].isna().all()
+    ).all()
+
+
+def test_future_prices_do_not_affect_past_momentum_features():
+    original = price_data(length=300)
+    changed = original.copy()
+    cutoff = original.index[270]
+    changed.loc[changed.index > cutoff, "Close"] *= 100.0
+
+    original_features = build_momentum_features(original)
+    changed_features = build_momentum_features(changed)
+
+    pd.testing.assert_frame_equal(
+        original_features.loc[:cutoff],
+        changed_features.loc[:cutoff],
+    )
+
+
+def test_build_momentum_features_does_not_mutate_input():
+    data = price_data(length=300)
+    original = data.copy(deep=True)
+
+    build_momentum_features(data)
+
+    pd.testing.assert_frame_equal(data, original)
+
+
+def test_existing_momentum_60_definition_remains_compatible():
+    data = price_data(length=90)
+
+    momentum = build_momentum_features(data)["momentum_60"]
+    legacy = data["Close"] / data["Close"].shift(60) - 1
+
+    pd.testing.assert_series_equal(momentum, legacy, check_names=False)
+
+
+def momentum_screen_panel():
+    dates = pd.to_datetime([
+        "2021-01-04", "2021-07-01", "2022-07-01", "2023-12-29",
+        "2024-01-02", "2024-07-01", "2025-07-01", "2025-12-30",
+    ])
+    symbols = ["AAA", "BBB", "CCC", "DDD"]
+    index = pd.MultiIndex.from_product(
+        [dates, symbols],
+        names=["date", "symbol"],
+    )
+    scores = np.tile([1.0, 2.0, 3.0, 4.0], len(dates))
+    positive = [1.0, 2.0, 3.0, 4.0]
+    negative = positive[::-1]
+    targets = np.concatenate([
+        positive, positive, negative, negative,
+        positive, positive, negative, negative,
+    ])
+    values = {
+        feature: scores.copy()
+        for feature in MOMENTUM_FEATURE_COLUMNS
+    }
+    values["target"] = targets
+    return pd.DataFrame(values, index=index)
+
+
+def test_momentum_rank_ic_sign_and_dates_are_independent():
+    panel = momentum_screen_panel().loc[
+        pd.IndexSlice[[pd.Timestamp("2021-01-04"), pd.Timestamp("2022-07-01")], :],
+        :,
+    ]
+
+    result = calculate_cross_sectional_ic(
+        panel,
+        min_symbols=4,
+        method="spearman",
+        feature_columns=["momentum_5"],
+    )
+
+    assert result["date"].tolist() == [
+        pd.Timestamp("2021-01-04"),
+        pd.Timestamp("2022-07-01"),
+    ]
+    assert result["ic"].tolist() == pytest.approx([1.0, -1.0])
+
+
+def test_momentum_rank_ic_drops_only_aligned_missing_pairs():
+    date = pd.Timestamp("2022-01-03")
+    index = pd.MultiIndex.from_product(
+        [[date], ["AAA", "BBB", "CCC", "DDD"]],
+        names=["date", "symbol"],
+    )
+    panel = pd.DataFrame({
+        "momentum_5": [1.0, 2.0, np.nan, 4.0],
+        "target": [1.0, 2.0, 3.0, np.nan],
+    }, index=index)
+
+    result = calculate_cross_sectional_ic(
+        panel,
+        min_symbols=2,
+        method="spearman",
+        feature_columns=["momentum_5"],
+    ).iloc[0]
+
+    assert result["number_of_symbols"] == 2
+    assert result["ic"] == pytest.approx(1.0)
+
+
+def test_momentum_screen_keeps_periods_disjoint_and_all_frozen_horizons():
+    result = run_momentum_feature_screen(momentum_screen_panel(), min_symbols=4)
+    research = result["period_results"]["research"]
+    validation = result["period_results"]["validation"]
+    research_dates = research["panel"].index.get_level_values("date")
+    validation_dates = validation["panel"].index.get_level_values("date")
+
+    assert research_dates.max() < validation_dates.min()
+    assert result["comparison"]["feature"].tolist() == MOMENTUM_FEATURE_COLUMNS
+    assert research["summary"]["feature"].tolist() == MOMENTUM_FEATURE_COLUMNS
+    assert validation["summary"]["feature"].tolist() == MOMENTUM_FEATURE_COLUMNS
+    assert research["summary"]["number_of_dates"].tolist() == [4] * 5
+    assert validation["summary"]["number_of_dates"].tolist() == [4] * 5
+    assert research["summary"]["mean_number_of_symbols"].tolist() == [4.0] * 5
+
+
+def test_momentum_screen_rejects_holdout_rows():
+    panel = momentum_screen_panel()
+    holdout = panel.iloc[[0]].copy()
+    holdout.index = pd.MultiIndex.from_tuples(
+        [(pd.Timestamp("2026-01-02"), "AAA")],
+        names=["date", "symbol"],
+    )
+
+    with pytest.raises(ValueError, match="holdout rows"):
+        run_momentum_feature_screen(pd.concat([panel, holdout]).sort_index())
+
+
+def test_future_targets_do_not_change_earlier_momentum_rank_ic():
+    panel = momentum_screen_panel()
+    changed = panel.copy()
+    changed_date = pd.Timestamp("2025-12-30")
+    changed.loc[(changed_date, slice(None)), "target"] = [40.0, 30.0, 20.0, 10.0]
+
+    original = run_momentum_feature_screen(panel, min_symbols=4)
+    altered = run_momentum_feature_screen(changed, min_symbols=4)
+    original_ic = original["period_results"]["validation"]["ic_results"]
+    altered_ic = altered["period_results"]["validation"]["ic_results"]
+
+    pd.testing.assert_frame_equal(
+        original_ic.loc[original_ic["date"] < changed_date].reset_index(drop=True),
+        altered_ic.loc[altered_ic["date"] < changed_date].reset_index(drop=True),
+    )
+
+
+def test_future_prices_do_not_change_earlier_momentum_screening():
+    dates = pd.bdate_range("2020-01-02", "2025-12-30")
+    steps = np.arange(len(dates), dtype=float)
+    original_data = {
+        f"S{number}": pd.DataFrame({
+            "Close": 100.0 + number * 10.0 + steps * (0.05 + number * 0.01)
+            + np.sin(steps / (7.0 + number)),
+        }, index=dates)
+        for number in range(1, 5)
+    }
+    changed_data = {
+        symbol: data.copy()
+        for symbol, data in original_data.items()
+    }
+    cutoff = pd.Timestamp("2025-07-01")
+    for number, data in enumerate(changed_data.values(), start=2):
+        data.loc[data.index >= cutoff, "Close"] *= number
+
+    original_panel = build_multi_asset_momentum_panel(original_data)
+    changed_panel = build_multi_asset_momentum_panel(changed_data)
+    last_safe_date = dates[dates.get_loc(cutoff) - 2]
+    original_mask = original_panel.index.get_level_values("date") <= last_safe_date
+    changed_mask = changed_panel.index.get_level_values("date") <= last_safe_date
+    pd.testing.assert_frame_equal(
+        original_panel.loc[original_mask, MOMENTUM_FEATURE_COLUMNS],
+        changed_panel.loc[changed_mask, MOMENTUM_FEATURE_COLUMNS],
+    )
+
+    original = run_momentum_feature_screen(original_panel, min_symbols=4)
+    altered = run_momentum_feature_screen(changed_panel, min_symbols=4)
+    original_ic = original["period_results"]["validation"]["ic_results"]
+    altered_ic = altered["period_results"]["validation"]["ic_results"]
+    pd.testing.assert_frame_equal(
+        original_ic.loc[original_ic["date"] <= last_safe_date].reset_index(drop=True),
+        altered_ic.loc[altered_ic["date"] <= last_safe_date].reset_index(drop=True),
+    )
+
+
+def test_momentum_stability_uses_ordered_chronological_halves():
+    stability = run_momentum_feature_screen(
+        momentum_screen_panel(),
+        min_symbols=4,
+    )["stability"]
+    groups = stability[[
+        "period", "subperiod", "start_date", "end_date"
+    ]].drop_duplicates().reset_index(drop=True)
+
+    assert groups[["period", "subperiod"]].values.tolist() == [
+        ["research", "first_half"],
+        ["research", "second_half"],
+        ["validation", "first_half"],
+        ["validation", "second_half"],
+    ]
+    assert (groups["start_date"] <= groups["end_date"]).all()
+    assert groups.loc[0, "end_date"] < groups.loc[1, "start_date"]
+    assert groups.loc[2, "end_date"] < groups.loc[3, "start_date"]
+    assert stability.groupby(["period", "subperiod"], sort=False).size().tolist() == [5] * 4
 
 
 def test_build_price_features_has_exact_names_and_alignment():

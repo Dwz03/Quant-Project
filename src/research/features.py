@@ -8,7 +8,7 @@ themselves validate alpha and must not be treated as a feature-selection rule.
 import numpy as np
 import pandas as pd
 
-from .periods import filter_panel_by_period
+from .periods import HOLDOUT_PERIOD, filter_panel_by_period
 
 
 FEATURE_COLUMNS_V1 = [
@@ -21,6 +21,54 @@ FEATURE_COLUMNS_V1 = [
     "volatility_20",
     "trend_20",
 ]
+
+MOMENTUM_HORIZONS = (5, 20, 60, 120, 252)
+MOMENTUM_FEATURE_COLUMNS = [
+    f'momentum_{horizon}'
+    for horizon in MOMENTUM_HORIZONS
+]
+
+
+def build_momentum_features(data: pd.DataFrame) -> pd.DataFrame:
+    '''Build close-to-close momentum features using same-symbol history.
+
+    Unlike the legacy screening dataset, this constructor retains the complete
+    input index so unavailable lookbacks remain represented by NaN values. It
+    accepts one symbol by date or a chronological (date, symbol) panel.
+    '''
+    if 'Close' not in data.columns:
+        raise ValueError('data must contain a Close column')
+    if data.empty:
+        raise ValueError('data cannot be empty')
+    if not data.index.is_monotonic_increasing:
+        raise ValueError('data index must be chronological')
+    if not data.index.is_unique:
+        raise ValueError('data index must be unique')
+
+    is_panel = isinstance(data.index, pd.MultiIndex)
+    if is_panel and data.index.names != ['date', 'symbol']:
+        raise ValueError('panel index levels must be named date and symbol')
+
+    close = data['Close'].astype(float)
+    close_values = close.to_numpy(dtype=float)
+    if not np.isfinite(close_values).all() or (close_values <= 0).any():
+        raise ValueError('Close prices must be finite and positive')
+
+    if is_panel:
+        lagged_prices = {
+            horizon: close.groupby(level='symbol', sort=False).shift(horizon)
+            for horizon in MOMENTUM_HORIZONS
+        }
+    else:
+        lagged_prices = {
+            horizon: close.shift(horizon)
+            for horizon in MOMENTUM_HORIZONS
+        }
+
+    return pd.DataFrame({
+        f'momentum_{horizon}': close / lagged_prices[horizon] - 1
+        for horizon in MOMENTUM_HORIZONS
+    }, index=data.index)
 
 
 def build_price_features(data: pd.DataFrame) -> pd.DataFrame:
@@ -41,13 +89,14 @@ def build_price_features(data: pd.DataFrame) -> pd.DataFrame:
 
     return_1 = close.pct_change()
     moving_average_20 = close.rolling(20).mean()
+    momentum = build_momentum_features(data)
 
     dataset = pd.DataFrame({
         "return_1": return_1,
         "return_2": return_1.shift(1),
-        "momentum_5": close.pct_change(5),
-        "momentum_20": close.pct_change(20),
-        "momentum_60": close.pct_change(60),
+        "momentum_5": momentum["momentum_5"],
+        "momentum_20": momentum["momentum_20"],
+        "momentum_60": momentum["momentum_60"],
         "volatility_5": return_1.rolling(5).std(),
         "volatility_20": return_1.rolling(20).std(),
         "trend_20": close / moving_average_20 - 1,
@@ -154,10 +203,38 @@ def build_multi_asset_feature_panel(
     return panel[[*FEATURE_COLUMNS_V1, "target"]]
 
 
+def build_multi_asset_momentum_panel(
+    symbol_data: dict[str, pd.DataFrame],
+) -> pd.DataFrame:
+    """Build all frozen momentum horizons and the next-return target."""
+    if not symbol_data:
+        raise ValueError("symbol_data must contain at least one symbol")
+
+    symbol_features = {}
+    for symbol, data in symbol_data.items():
+        momentum = build_momentum_features(data)
+        close = data["Close"].astype(float)
+        symbol_features[symbol] = momentum.assign(
+            target=close.pct_change().shift(-1),
+        )
+
+    panel = pd.concat(
+        symbol_features,
+        names=["symbol", "date"],
+    ).reorder_levels(["date", "symbol"]).sort_index()
+    if not panel.index.is_unique:
+        raise ValueError("panel (date, symbol) index must be unique")
+    if not panel.index.is_monotonic_increasing:
+        raise ValueError("panel index must be chronological")
+
+    return panel[[*MOMENTUM_FEATURE_COLUMNS, "target"]]
+
+
 def calculate_cross_sectional_ic(
     panel: pd.DataFrame,
     min_symbols: int = 5,
     method: str = "pearson",
+    feature_columns: tuple[str, ...] | list[str] | None = None,
 ) -> pd.DataFrame:
     """Calculate same-date cross-sectional feature ICs across symbols.
 
@@ -180,7 +257,17 @@ def calculate_cross_sectional_ic(
     if not panel.index.is_monotonic_increasing:
         raise ValueError("panel index must be chronological")
 
-    required_columns = {*FEATURE_COLUMNS_V1, "target"}
+    features = (
+        list(FEATURE_COLUMNS_V1)
+        if feature_columns is None
+        else list(feature_columns)
+    )
+    if not features:
+        raise ValueError("feature_columns must contain at least one feature")
+    if len(set(features)) != len(features):
+        raise ValueError("feature_columns must be unique")
+
+    required_columns = {*features, "target"}
     missing_columns = required_columns.difference(panel.columns)
     if missing_columns:
         missing = ", ".join(sorted(missing_columns))
@@ -188,7 +275,7 @@ def calculate_cross_sectional_ic(
 
     rows = []
     for date, date_data in panel.groupby(level="date", sort=True):
-        for feature in FEATURE_COLUMNS_V1:
+        for feature in features:
             paired_values = date_data[[feature, "target"]].dropna()
             number_of_symbols = len(paired_values)
             ic = (
@@ -212,7 +299,10 @@ def calculate_cross_sectional_ic(
     )
 
 
-def summarize_cross_sectional_ic(ic_results: pd.DataFrame) -> pd.DataFrame:
+def summarize_cross_sectional_ic(
+    ic_results: pd.DataFrame,
+    feature_columns: tuple[str, ...] | list[str] | None = None,
+) -> pd.DataFrame:
     """Summarize exploratory ICs without ranking or selecting features."""
     required_columns = {"date", "feature", "ic", "number_of_symbols"}
     missing_columns = required_columns.difference(ic_results.columns)
@@ -220,8 +310,18 @@ def summarize_cross_sectional_ic(ic_results: pd.DataFrame) -> pd.DataFrame:
         missing = ", ".join(sorted(missing_columns))
         raise ValueError(f"ic_results is missing required columns: {missing}")
 
+    features = (
+        list(FEATURE_COLUMNS_V1)
+        if feature_columns is None
+        else list(feature_columns)
+    )
+    if not features:
+        raise ValueError("feature_columns must contain at least one feature")
+    if len(set(features)) != len(features):
+        raise ValueError("feature_columns must be unique")
+
     rows = []
-    for feature in FEATURE_COLUMNS_V1:
+    for feature in features:
         feature_results = ic_results.loc[ic_results["feature"] == feature]
         if feature_results.empty:
             continue
@@ -248,9 +348,7 @@ def summarize_cross_sectional_ic(ic_results: pd.DataFrame) -> pd.DataFrame:
             "icir": icir,
             "fraction_positive_ic": fraction_positive,
             "number_of_dates": valid_ic["date"].nunique(),
-            "mean_number_of_symbols": feature_results[
-                "number_of_symbols"
-            ].mean(),
+            "mean_number_of_symbols": valid_ic["number_of_symbols"].mean(),
         })
 
     return pd.DataFrame(rows, columns=[
@@ -271,6 +369,7 @@ def run_cross_sectional_ic_by_period(
     min_symbols: int = 5,
     method: str = "spearman",
     allow_holdout: bool = False,
+    feature_columns: tuple[str, ...] | list[str] | None = None,
 ) -> dict[str, dict[str, pd.DataFrame]]:
     """Run the same fixed IC analysis independently within named periods."""
     periods_used = list(period_names)
@@ -290,14 +389,99 @@ def run_cross_sectional_ic_by_period(
             period_panel,
             min_symbols=min_symbols,
             method=method,
+            feature_columns=feature_columns,
         )
         results[period_name] = {
             "panel": period_panel,
             "ic_results": ic_results,
-            "summary": summarize_cross_sectional_ic(ic_results),
+            "summary": summarize_cross_sectional_ic(
+                ic_results,
+                feature_columns=feature_columns,
+            ),
         }
 
     return results
+
+
+def run_momentum_feature_screen(
+    panel: pd.DataFrame,
+    min_symbols: int = 5,
+) -> dict[str, object]:
+    """Screen frozen momentum horizons in Research and Validation only."""
+    if not isinstance(panel.index, pd.MultiIndex):
+        raise ValueError("panel must use a (date, symbol) MultiIndex")
+    if panel.index.names != ["date", "symbol"]:
+        raise ValueError("panel index levels must be named date and symbol")
+
+    dates = panel.index.get_level_values("date")
+    if (dates >= HOLDOUT_PERIOD.start).any():
+        raise ValueError("holdout rows are not permitted in momentum screening")
+
+    period_results = run_cross_sectional_ic_by_period(
+        panel,
+        period_names=["research", "validation"],
+        min_symbols=min_symbols,
+        method="spearman",
+        feature_columns=MOMENTUM_FEATURE_COLUMNS,
+    )
+
+    metrics = [
+        "mean_ic",
+        "median_ic",
+        "std_ic",
+        "icir",
+        "fraction_positive_ic",
+        "number_of_dates",
+        "mean_number_of_symbols",
+    ]
+    comparison = pd.DataFrame({"feature": MOMENTUM_FEATURE_COLUMNS})
+    for period_name, period_result in period_results.items():
+        summary = period_result["summary"].set_index("feature").reindex(
+            MOMENTUM_FEATURE_COLUMNS
+        )
+        for metric in metrics:
+            comparison[f"{period_name}_{metric}"] = summary[metric].to_numpy()
+
+    stability_rows = []
+    for period_name, period_result in period_results.items():
+        period_panel = period_result["panel"]
+        period_dates = period_panel.index.get_level_values("date").unique()
+        if len(period_dates) < 2:
+            raise ValueError(
+                f"{period_name} period needs at least two dates for stability"
+            )
+        split = len(period_dates) // 2
+        for subperiod, subperiod_dates in (
+            ("first_half", period_dates[:split]),
+            ("second_half", period_dates[split:]),
+        ):
+            mask = period_panel.index.get_level_values("date").isin(
+                subperiod_dates
+            )
+            subperiod_ic = calculate_cross_sectional_ic(
+                period_panel.loc[mask],
+                min_symbols=min_symbols,
+                method="spearman",
+                feature_columns=MOMENTUM_FEATURE_COLUMNS,
+            )
+            summary = summarize_cross_sectional_ic(
+                subperiod_ic,
+                feature_columns=MOMENTUM_FEATURE_COLUMNS,
+            )
+            for row in summary.to_dict("records"):
+                stability_rows.append({
+                    "period": period_name,
+                    "subperiod": subperiod,
+                    "start_date": subperiod_dates[0],
+                    "end_date": subperiod_dates[-1],
+                    **row,
+                })
+
+    return {
+        "period_results": period_results,
+        "comparison": comparison,
+        "stability": pd.DataFrame(stability_rows),
+    }
 
 
 def summarize_feature_stability(
