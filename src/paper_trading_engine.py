@@ -101,8 +101,8 @@ class PaperTradingEngine:
             if state_file is None
             else Path(state_file)
         )
-        self.persisted_cycle_key = (
-            self._load_persisted_cycle_key()
+        self.persisted_completed_cycle_key = (
+            self._load_persisted_completed_cycle_key()
         )
         self.kill_switch_active = False
         self.kill_switch_reason = None
@@ -142,7 +142,7 @@ class PaperTradingEngine:
         return timestamp.date().isoformat()
 
 
-    def _load_persisted_cycle_key(self):
+    def _load_persisted_completed_cycle_key(self):
 
         if (
             self.state_file is None
@@ -153,9 +153,17 @@ class PaperTradingEngine:
         with self.state_file.open("r") as file:
             state = json.load(file)
 
-        cycle_key = state.get(
-            "last_attempted_cycle_key"
-        )
+        cycle_key = state.get("last_completed_cycle_key")
+
+        # Older versions persisted an attempt before broker submission. That
+        # field cannot distinguish a completed zero-order cycle from a total
+        # submission failure, so broker reconciliation remains authoritative
+        # for legacy state files.
+        if (
+            cycle_key is None
+            and "last_attempted_cycle_key" in state
+        ):
+            return None
 
         if not isinstance(cycle_key, str):
             raise ValueError(
@@ -165,10 +173,10 @@ class PaperTradingEngine:
         return cycle_key
 
 
-    def _persist_cycle_attempt(self, cycle_key):
+    def _persist_cycle_completion(self, cycle_key):
 
         if self.state_file is None:
-            self.persisted_cycle_key = cycle_key
+            self.persisted_completed_cycle_key = cycle_key
             return
 
         self.state_file.parent.mkdir(
@@ -191,7 +199,7 @@ class PaperTradingEngine:
                 )
                 json.dump(
                     {
-                        "last_attempted_cycle_key":
+                        "last_completed_cycle_key":
                             cycle_key
                     },
                     temporary_file
@@ -212,7 +220,7 @@ class PaperTradingEngine:
             ):
                 temporary_path.unlink()
 
-        self.persisted_cycle_key = cycle_key
+        self.persisted_completed_cycle_key = cycle_key
 
 
     def sync_portfolio(self):
@@ -488,14 +496,14 @@ class PaperTradingEngine:
                 ]
             )
 
-        if self.persisted_cycle_key == cycle_key:
+        if self.persisted_completed_cycle_key == cycle_key:
 
             self.last_cycle_key = cycle_key
 
             return self._empty_cycle_result(
                 "DUPLICATE_SKIPPED",
                 cycle_key=cycle_key,
-                reason="cycle already attempted"
+                reason="cycle already completed"
             )
 
         return None
@@ -712,14 +720,6 @@ class PaperTradingEngine:
         # 4. Strategy → Broker
         # -------------------------
 
-        # This is the point at which today's
-        # strategy decision is consumed. The
-        # local marker covers cycles that create
-        # no durable broker order record.
-        self._persist_cycle_attempt(
-            cycle_key
-        )
-
         try:
 
             if notional_state is not None:
@@ -738,6 +738,12 @@ class PaperTradingEngine:
             order_ids = (
                 result["submitted_orders"]
             )
+
+            # The broker cycle returned successfully, so all planned
+            # submissions completed (or this was a valid zero-order cycle).
+            # Persist only now: an exception before this point may mean that
+            # no broker order was accepted and must remain retryable.
+            self._persist_cycle_completion(cycle_key)
 
             if order_ids:
 

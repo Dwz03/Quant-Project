@@ -1,4 +1,5 @@
 import pytest
+from decimal import Decimal
 
 from src.broker import PaperBroker, Broker
 from src.order import Order
@@ -390,6 +391,64 @@ def test_alpaca_paper_broker_submits_notional_without_quantity():
     assert broker.client.request.qty is None
     assert broker.client.request.type.value == "market"
     assert broker.client.request.time_in_force.value == "day"
+
+
+@pytest.mark.parametrize(
+    ("notional", "expected"),
+    [
+        (588.2352941176471, Decimal("588.24")),
+        (588.23, Decimal("588.23")),
+        (588, Decimal("588.00")),
+        (0.1, Decimal("0.10")),
+    ],
+)
+def test_alpaca_paper_broker_normalizes_notional_to_cents(
+    monkeypatch,
+    notional,
+    expected,
+):
+    captured = {}
+
+    class FakeRequest:
+        def __init__(self, **request_data):
+            captured.update(request_data)
+
+    class FakeBrokerOrder:
+        id = "broker-notional-123"
+
+    class FakeClient:
+        def submit_order(self, order_data):
+            return FakeBrokerOrder()
+
+    monkeypatch.setattr(
+        "src.alpaca_broker.MarketOrderRequest",
+        FakeRequest,
+    )
+    broker = AlpacaPaperBroker.__new__(AlpacaPaperBroker)
+    broker.client = FakeClient()
+
+    broker.submit_order(Order("AAPL", side="BUY", notional=notional))
+
+    assert captured["notional"] == expected
+    assert captured["notional"].as_tuple().exponent == -2
+
+
+@pytest.mark.parametrize("notional", [0, -1])
+def test_notional_order_rejects_non_positive_value(notional):
+    with pytest.raises(ValueError, match="notional must be positive"):
+        Order("AAPL", side="BUY", notional=notional)
+
+
+def test_alpaca_paper_broker_rejects_notional_rounded_to_zero():
+    broker = AlpacaPaperBroker.__new__(AlpacaPaperBroker)
+
+    with pytest.raises(
+        ValueError,
+        match="notional must be positive after cent rounding",
+    ):
+        broker.submit_order(
+            Order("AAPL", side="BUY", notional=0.004)
+        )
 
 
 @pytest.mark.parametrize(

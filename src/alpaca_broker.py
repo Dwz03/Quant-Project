@@ -1,4 +1,5 @@
 import os
+from decimal import Decimal, ROUND_HALF_UP
 
 from dotenv import load_dotenv
 
@@ -20,6 +21,17 @@ from alpaca.common.exceptions import APIError
 class AlpacaPaperBroker(Broker):
 
     is_paper = True
+    _CURRENCY_QUANTUM = Decimal("0.01")
+
+    @classmethod
+    def _normalize_notional(cls, notional):
+        normalized = Decimal(str(notional)).quantize(
+            cls._CURRENCY_QUANTUM,
+            rounding=ROUND_HALF_UP,
+        )
+        if normalized <= 0:
+            raise ValueError("notional must be positive after cent rounding")
+        return normalized
 
     def __init__(self):
 
@@ -105,7 +117,9 @@ class AlpacaPaperBroker(Broker):
         }
 
         if order.notional is not None:
-            request_data["notional"] = order.notional
+            request_data["notional"] = self._normalize_notional(
+                order.notional
+            )
         else:
             request_data["qty"] = order.quantity
 

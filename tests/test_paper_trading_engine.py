@@ -1543,3 +1543,78 @@ def test_zero_order_cycle_is_consumed_after_restart(
     assert after_restart["status"] == "DUPLICATE_SKIPPED"
     assert first_trading_engine.run_count == 1
     assert restarted_trading_engine.run_count == 0
+
+
+def test_complete_submission_failure_is_retryable_after_restart(tmp_path):
+    state_file = tmp_path / "paper_cycle.json"
+    broker = ReconciliationBroker()
+
+    class FailingTradingEngine(ReconciliationTradingEngine):
+        def run_broker_cycle(
+            self,
+            history,
+            cycle_key=None,
+            execution_prices=None,
+        ):
+            self.run_count += 1
+            raise RuntimeError("complete submission failure")
+
+    failing_engine = FailingTradingEngine()
+    first_engine = build_reconciliation_engine(
+        broker,
+        failing_engine,
+        state_file=state_file,
+    )
+
+    with pytest.raises(RuntimeError, match="complete submission failure"):
+        first_engine.run_cycle()
+
+    assert not state_file.exists()
+
+    retry_engine = ReconciliationTradingEngine()
+    restarted_engine = build_reconciliation_engine(
+        broker,
+        retry_engine,
+        state_file=state_file,
+    )
+
+    retried = restarted_engine.run_cycle()
+
+    assert retried["status"] == "COMPLETED"
+    assert failing_engine.run_count == 1
+    assert retry_engine.run_count == 1
+
+
+def test_successful_execution_writes_completed_marker(tmp_path):
+    state_file = tmp_path / "paper_cycle.json"
+    engine = build_reconciliation_engine(
+        ReconciliationBroker(),
+        state_file=state_file,
+    )
+
+    result = engine.run_cycle()
+
+    assert result["status"] == "COMPLETED"
+    assert state_file.read_text() == (
+        '{"last_completed_cycle_key": "2026-09-09"}'
+    )
+
+
+def test_scheduled_market_closed_never_enters_submission_pipeline():
+    class ClosedBroker(ReconciliationBroker):
+        def get_clock(self):
+            return SimpleNamespace(
+                is_open=False,
+                timestamp=pd.Timestamp("2026-09-09 08:00:00", tz="UTC"),
+            )
+
+    class SubmissionMustNotRun(ReconciliationTradingEngine):
+        def run_broker_cycle(self, *args, **kwargs):
+            raise AssertionError("closed market reached broker submission")
+
+    result = build_reconciliation_engine(
+        ClosedBroker(),
+        SubmissionMustNotRun(),
+    ).run_scheduled_step()
+
+    assert result["status"] == "MARKET_CLOSED"
