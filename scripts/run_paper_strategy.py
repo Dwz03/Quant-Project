@@ -32,8 +32,10 @@ from src.research.universes import LARGE_LIQUID_US_EQUITIES_V1
 
 
 VOLATILITY_20_MAX_POSITION_PCT = 0.06
+MOMENTUM_252_MAX_POSITION_PCT = 0.06
 DEFAULT_MAX_POSITION_PCT = 0.02
 VOLATILITY_20_LOOKBACK_DAYS = 60
+MOMENTUM_252_LOOKBACK_DAYS = 400
 PAPER_QUOTE_MAX_STALENESS_SECONDS = 300
 VOLATILITY_20_EXECUTION_FEED = DataFeed.SIP
 DEFAULT_EXECUTION_FEED = DataFeed.IEX
@@ -64,9 +66,30 @@ def _require_paper_broker(broker):
 
 
 def _execution_feed_for_strategy(strategy_name):
-    if strategy_name == "volatility_20":
+    if strategy_name in ("volatility_20", "momentum_252"):
         return VOLATILITY_20_EXECUTION_FEED
     return DEFAULT_EXECUTION_FEED
+
+
+def _max_position_pct_for_strategy(strategy_name):
+    return {
+        "volatility_20": VOLATILITY_20_MAX_POSITION_PCT,
+        "momentum_252": MOMENTUM_252_MAX_POSITION_PCT,
+    }.get(strategy_name, DEFAULT_MAX_POSITION_PCT)
+
+
+def _lookback_days_for_strategy(strategy_name, strategy):
+    if strategy_name == "volatility_20":
+        return VOLATILITY_20_LOOKBACK_DAYS
+    if strategy_name == "momentum_252":
+        return MOMENTUM_252_LOOKBACK_DAYS
+    return max(90, getattr(strategy, "long_window", 0) * 2)
+
+
+def _execution_window_for_strategy(strategy_name):
+    if strategy_name in ("volatility_20", "momentum_252"):
+        return "after_open"
+    return "before_close"
 
 
 def _order_text(order):
@@ -88,9 +111,14 @@ def _print_preview(result):
     )
     print("Selected symbols:", len(selected))
     if not selected.empty:
+        feature_columns = [
+            column
+            for column in ("volatility_20", "momentum_252")
+            if column in selected.columns
+        ]
         print(
             selected[[
-                "symbol", "volatility_20", "rank", "target_weight"
+                "symbol", *feature_columns, "rank", "target_weight"
             ]].to_string(index=False)
         )
     print("Current portfolio weights:", result["current_weights"])
@@ -115,6 +143,14 @@ def _print_preview(result):
 
 def _print_volatility_risk_profile():
     print("Volatility 20 V1 paper risk profile:")
+    print("  frozen target weight per selected symbol: approximately 5.88%")
+    print("  max_position_pct: 6.00%")
+    print("  max_leverage: 1.00")
+
+
+def _print_momentum_252_risk_profile():
+    print("Momentum 252 V1 paper risk profile:")
+    print("  frozen horizon: 252 completed daily closes")
     print("  frozen target weight per selected symbol: approximately 5.88%")
     print("  max_position_pct: 6.00%")
     print("  max_leverage: 1.00")
@@ -195,7 +231,7 @@ def main(argv=None):
     # 4. Strategy
     # ==================================
 
-    if strategy_name == "volatility_20":
+    if strategy_name in ("volatility_20", "momentum_252"):
         symbols = list(LARGE_LIQUID_US_EQUITIES_V1)
     else:
         symbols_text = os.getenv(
@@ -259,11 +295,7 @@ def main(argv=None):
     # 5. Risk
     # ==================================
 
-    max_position_pct = (
-        VOLATILITY_20_MAX_POSITION_PCT
-        if strategy_name == "volatility_20"
-        else DEFAULT_MAX_POSITION_PCT
-    )
+    max_position_pct = _max_position_pct_for_strategy(strategy_name)
     risk_manager = RiskManager(
         max_position_pct=max_position_pct,
         max_leverage=1.0
@@ -307,31 +339,19 @@ def main(argv=None):
             trading_engine=trading_engine,
             symbols=symbols,
 
-            lookback_days=(
-                VOLATILITY_20_LOOKBACK_DAYS
-                if strategy_name == "volatility_20"
-                else max(
-                    90,
-                    getattr(
-                        strategy,
-                        "long_window",
-                        0
-                    ) * 2
-                )
+            lookback_days=_lookback_days_for_strategy(
+                strategy_name,
+                strategy,
             ),
 
             # Existing strategies retain their
             # final-15-minute schedule.
             minutes_before_close=15,
 
-            # volatility_20 forms after the prior
+            # Frozen cross-sectional strategies form after the prior
             # completed close and executes in the
             # first five minutes of the next session.
-            execution_window=(
-                "after_open"
-                if strategy_name == "volatility_20"
-                else "before_close"
-            ),
+            execution_window=_execution_window_for_strategy(strategy_name),
             minutes_after_open=5,
 
             # Check scheduler every minute.
@@ -346,6 +366,8 @@ def main(argv=None):
 
     if strategy_name == "volatility_20":
         _print_volatility_risk_profile()
+    elif strategy_name == "momentum_252":
+        _print_momentum_252_risk_profile()
 
     if args.preview:
         preview = paper_engine.preview_cycle()

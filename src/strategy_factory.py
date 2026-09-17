@@ -5,6 +5,7 @@ from .strategy import (
     PairsTradingStrategy,
     PCAResidualTradingStrategy,
     Volatility20Strategy,
+    Momentum252Strategy,
 )
 
 
@@ -38,6 +39,13 @@ def build_strategy(
                 if not symbols
                 else symbols
             )
+        )
+
+
+    elif strategy_name == "momentum_252":
+
+        return Momentum252Strategy(
+            symbols=None if not symbols else symbols
         )
 
 

@@ -101,3 +101,6 @@ research/research_results/
 # =========================
 *.tmp
 *.temp
+
+reports/momentum_feature_screen/
+reports/momentum_economic_backtest/
