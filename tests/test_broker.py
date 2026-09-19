@@ -155,6 +155,32 @@ def test_alpaca_broker_explicitly_declares_paper_mode():
     assert AlpacaPaperBroker.is_paper is True
 
 
+def test_alpaca_broker_injects_credentials_into_paper_client(monkeypatch):
+    captured = {}
+
+    class FakeTradingClient:
+        def __init__(self, api_key, secret_key, paper):
+            captured.update(
+                api_key=api_key,
+                secret_key=secret_key,
+                paper=paper,
+            )
+
+    monkeypatch.setattr(
+        "src.alpaca_broker.TradingClient",
+        FakeTradingClient,
+    )
+
+    broker = AlpacaPaperBroker("test-api", "test-secret")
+
+    assert isinstance(broker.client, FakeTradingClient)
+    assert captured == {
+        "api_key": "test-api",
+        "secret_key": "test-secret",
+        "paper": True,
+    }
+
+
 def test_alpaca_broker_get_open_orders():
 
     from alpaca.trading.enums import (

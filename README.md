@@ -153,8 +153,10 @@ Declared dependencies include `alpaca-py`, pandas, NumPy, SciPy, scikit-learn, S
 
 The automated runner references these variable names:
 
-- `ALPACA_API_KEY` — required.
-- `ALPACA_SECRET_KEY` — required.
+- `ALPACA_ALPHA_1_API_KEY` — required when `--account alpha_1` is selected.
+- `ALPACA_ALPHA_1_SECRET_KEY` — required when `--account alpha_1` is selected.
+- `ALPACA_ALPHA_2_API_KEY` — required when `--account alpha_2` is selected.
+- `ALPACA_ALPHA_2_SECRET_KEY` — required when `--account alpha_2` is selected.
 - `SYMBOLS` — optional comma-separated universe; defaults to `AAPL,MSFT,GOOG`.
 - `STRATEGY_NAME` — optional factory strategy name; defaults to `momentum`.
 - `STRATEGY_LOOKBACK` — optional momentum lookback; defaults to `20`.
@@ -200,7 +202,7 @@ Its defaults use 252 training observations followed by 63 validation and 63 unse
 Configure the required environment variables without exposing credentials on the command line, activate the virtual environment, and run:
 
 ```bash
-python scripts/run_paper_strategy.py
+python scripts/run_paper_strategy.py --account alpha_1
 ```
 
 The runner:
@@ -212,7 +214,7 @@ The runner:
 5. runs one daily strategy decision during the final 15 minutes before market close;
 6. submits risk-approved orders and reconciles their terminal state.
 
-The scheduler polls once per minute. Open or partially filled orders block new decisions. Runtime cycle state is stored at the stable project path `.state/paper_cycle.json`; `.state/` is gitignored.
+The scheduler polls once per minute. Open or partially filled orders block new decisions. Runtime cycle state is namespaced by account and strategy under `.state/paper_cycles/<account>__<strategy>.json`; `.state/` is gitignored.
 
 This command is for Alpaca paper trading only. It does not provide a live-trading mode.
 
@@ -282,24 +284,30 @@ Before allowing a strategy to submit paper orders, run it in preview mode:
 ```bash
 .venv/bin/python scripts/run_paper_strategy.py \
     --strategy <strategy_name> \
+    --account <alpha_1_or_alpha_2> \
     --preview
 
 .venv/bin/python scripts/run_paper_strategy.py \
-    --strategy <strategy_name>
+    --strategy <strategy_name> \
+    --account <alpha_1_or_alpha_2>
 
 .venv/bin/python scripts/run_paper_strategy.py \
     --strategy moving_average \
+    --account alpha_1 \
     --preview
 
 .venv/bin/python scripts/run_paper_strategy.py \
-    --strategy moving_average
+    --strategy moving_average \
+    --account alpha_1
 
 .venv/bin/python scripts/run_paper_strategy.py \
     --strategy volatility_20 \
+    --account alpha_1 \
     --preview
 
 .venv/bin/python scripts/run_paper_strategy.py \
-    --strategy volatility_20
+    --strategy volatility_20 \
+    --account alpha_1
 
     
 

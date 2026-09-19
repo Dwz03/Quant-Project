@@ -3,6 +3,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import tempfile
 import time
 from zoneinfo import ZoneInfo
@@ -20,7 +21,41 @@ _DEFAULT_STATE_FILE = (
     / ".state"
     / "paper_cycle.json"
 )
+_PAPER_CYCLE_STATE_DIRECTORY = (
+    _PROJECT_ROOT
+    / ".state"
+    / "paper_cycles"
+)
+_SAFE_STATE_NAMESPACE_COMPONENT = re.compile(
+    r"[a-z0-9]+(?:[_-][a-z0-9]+)*"
+)
 _NEW_YORK = ZoneInfo("America/New_York")
+
+
+def build_paper_cycle_state_path(
+    account,
+    strategy,
+    state_directory=None,
+):
+    components = {
+        "account": account,
+        "strategy": strategy,
+    }
+    for label, value in components.items():
+        if (
+            not isinstance(value, str)
+            or _SAFE_STATE_NAMESPACE_COMPONENT.fullmatch(value) is None
+        ):
+            raise ValueError(
+                f"{label} is not safe for a paper cycle state path"
+            )
+
+    directory = (
+        _PAPER_CYCLE_STATE_DIRECTORY
+        if state_directory is None
+        else Path(state_directory)
+    )
+    return directory / f"{account}__{strategy}.json"
 
 
 def filter_completed_daily_history(history, as_of):

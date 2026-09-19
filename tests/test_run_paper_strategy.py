@@ -11,13 +11,82 @@ from src.execution import ExecutionHandler
 from src.trading_engine import TradingEngine
 from src.strategy_factory import build_strategy
 from scripts.run_paper_strategy import (
+    build_parser,
     _execution_feed_for_strategy,
     _require_paper_broker,
+    load_alpaca_credentials,
 )
 from alpaca.data.enums import DataFeed
 import pandas as pd
 import numpy as np
 import pytest
+
+
+@pytest.mark.parametrize(
+    ("account", "api_variable", "secret_variable"),
+    [
+        (
+            "alpha_1",
+            "ALPACA_ALPHA_1_API_KEY",
+            "ALPACA_ALPHA_1_SECRET_KEY",
+        ),
+        (
+            "alpha_2",
+            "ALPACA_ALPHA_2_API_KEY",
+            "ALPACA_ALPHA_2_SECRET_KEY",
+        ),
+    ],
+)
+def test_load_alpaca_credentials_uses_account_specific_variables(
+    monkeypatch,
+    account,
+    api_variable,
+    secret_variable,
+):
+    monkeypatch.setenv(api_variable, f"{account}-api")
+    monkeypatch.setenv(secret_variable, f"{account}-secret")
+
+    assert load_alpaca_credentials(account) == (
+        f"{account}-api",
+        f"{account}-secret",
+    )
+
+
+@pytest.mark.parametrize("missing_variable", ["api", "secret"])
+def test_load_alpaca_credentials_rejects_missing_values(
+    monkeypatch,
+    missing_variable,
+):
+    monkeypatch.setenv("ALPACA_ALPHA_1_API_KEY", "test-api")
+    monkeypatch.setenv("ALPACA_ALPHA_1_SECRET_KEY", "test-secret")
+    variable = {
+        "api": "ALPACA_ALPHA_1_API_KEY",
+        "secret": "ALPACA_ALPHA_1_SECRET_KEY",
+    }[missing_variable]
+    monkeypatch.delenv(variable)
+
+    with pytest.raises(
+        ValueError,
+        match="Missing Alpaca credentials for account: alpha_1",
+    ):
+        load_alpaca_credentials("alpha_1")
+
+
+@pytest.mark.parametrize("account", ["alpha_1", "alpha_2"])
+def test_paper_runner_accepts_supported_account(account):
+    args = build_parser().parse_args(["--account", account])
+
+    assert args.account == account
+
+
+def test_paper_runner_requires_account():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args([])
+
+
+def test_paper_runner_rejects_unsupported_account():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--account", "other"])
 
 
 def test_paper_runner_accepts_explicit_paper_broker():

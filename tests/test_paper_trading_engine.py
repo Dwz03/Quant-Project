@@ -2,7 +2,10 @@ import pytest
 from pathlib import Path
 from types import SimpleNamespace
 from src.portfolio import Portfolio
-from src.paper_trading_engine import PaperTradingEngine
+from src.paper_trading_engine import (
+    PaperTradingEngine,
+    build_paper_cycle_state_path,
+)
 from src.strategy import (
     MomentumTradingStrategy,
     MovingAverageTradingStrategy,
@@ -12,6 +15,69 @@ from src.execution import ExecutionHandler
 from src.risk_manager import RiskManager
 from src.rebalancer import Rebalancer
 import pandas as pd
+
+
+def test_cycle_state_path_differs_for_different_accounts(tmp_path):
+    alpha_1 = build_paper_cycle_state_path(
+        "alpha_1",
+        "volatility_20",
+        state_directory=tmp_path,
+    )
+    alpha_2 = build_paper_cycle_state_path(
+        "alpha_2",
+        "volatility_20",
+        state_directory=tmp_path,
+    )
+
+    assert alpha_1 != alpha_2
+
+
+def test_cycle_state_path_differs_for_different_strategies(tmp_path):
+    volatility = build_paper_cycle_state_path(
+        "alpha_1",
+        "volatility_20",
+        state_directory=tmp_path,
+    )
+    momentum = build_paper_cycle_state_path(
+        "alpha_1",
+        "momentum_252",
+        state_directory=tmp_path,
+    )
+
+    assert volatility != momentum
+
+
+def test_cycle_state_path_is_deterministic_for_same_namespace(tmp_path):
+    first = build_paper_cycle_state_path(
+        "alpha_1",
+        "volatility_20",
+        state_directory=tmp_path,
+    )
+    second = build_paper_cycle_state_path(
+        "alpha_1",
+        "volatility_20",
+        state_directory=tmp_path,
+    )
+
+    assert first == second
+    assert first == tmp_path / "alpha_1__volatility_20.json"
+
+
+@pytest.mark.parametrize(
+    ("account", "strategy"),
+    [
+        ("../alpha_1", "volatility_20"),
+        ("alpha_1", "../volatility_20"),
+        ("alpha_1/other", "volatility_20"),
+        ("alpha_1", "volatility_20/other"),
+    ],
+)
+def test_cycle_state_path_rejects_unsafe_components(
+    account,
+    strategy,
+):
+    with pytest.raises(ValueError, match="not safe"):
+        build_paper_cycle_state_path(account, strategy)
 
 
 def test_default_state_file_is_independent_of_working_directory(
@@ -1516,7 +1582,11 @@ def test_zero_order_cycle_is_consumed_after_restart(
     tmp_path
 ):
 
-    state_file = tmp_path / "paper_cycle.json"
+    state_file = build_paper_cycle_state_path(
+        "alpha_1",
+        "volatility_20",
+        state_directory=tmp_path,
+    )
     broker = ReconciliationBroker()
     first_trading_engine = (
         ReconciliationTradingEngine()

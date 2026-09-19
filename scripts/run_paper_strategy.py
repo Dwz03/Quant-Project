@@ -17,13 +17,20 @@ from alpaca.data.historical.stock import (
 from alpaca.data.enums import DataFeed
 
 from src.alpaca_broker import AlpacaPaperBroker
+from src.alpaca_credentials import (
+    ALPACA_ACCOUNT_ENV_VARS,
+    load_alpaca_credentials,
+)
 from src.market_data import AlpacaMarketDataAdapter
 from src.portfolio import Portfolio
 from src.risk_manager import RiskManager
 from src.execution import ExecutionHandler
 from src.rebalancer import Rebalancer
 from src.trading_engine import TradingEngine
-from src.paper_trading_engine import PaperTradingEngine
+from src.paper_trading_engine import (
+    PaperTradingEngine,
+    build_paper_cycle_state_path,
+)
 
 from src.strategy_factory import (
     build_strategy
@@ -48,6 +55,12 @@ def build_parser():
         description="Run or safely preview an Alpaca paper strategy.",
     )
     parser.add_argument("--strategy")
+    parser.add_argument(
+        "--account",
+        required=True,
+        choices=list(ALPACA_ACCOUNT_ENV_VARS),
+        help="Alpaca paper account to use",
+    )
     parser.add_argument(
         "--preview",
         action="store_true",
@@ -160,19 +173,6 @@ def main(argv=None):
 
     args = build_parser().parse_args(argv)
 
-    # ==================================
-    # 1. Alpaca Broker
-    # ==================================
-
-    broker = AlpacaPaperBroker()
-
-    _require_paper_broker(broker)
-
-
-    # ==================================
-    # 2. Alpaca Market Data
-    # ==================================
-
     load_dotenv()
 
     strategy_name = (
@@ -181,21 +181,23 @@ def main(argv=None):
         else os.getenv("STRATEGY_NAME", "moving_average")
     ).strip().lower()
 
-    api_key = os.getenv(
-        "ALPACA_API_KEY"
+    api_key, secret_key = load_alpaca_credentials(args.account)
+
+    # ==================================
+    # 1. Alpaca Broker
+    # ==================================
+
+    broker = AlpacaPaperBroker(
+        api_key=api_key,
+        secret_key=secret_key,
     )
 
-    secret_key = os.getenv(
-        "ALPACA_SECRET_KEY"
-    )
+    _require_paper_broker(broker)
 
-    if not api_key or not secret_key:
 
-        raise ValueError(
-            "Alpaca API credentials "
-            "are missing"
-        )
-
+    # ==================================
+    # 2. Alpaca Market Data
+    # ==================================
 
     data_client = (
         StockHistoricalDataClient(
@@ -338,6 +340,10 @@ def main(argv=None):
             market_data=market_data,
             trading_engine=trading_engine,
             symbols=symbols,
+            state_file=build_paper_cycle_state_path(
+                args.account,
+                strategy_name,
+            ),
 
             lookback_days=_lookback_days_for_strategy(
                 strategy_name,

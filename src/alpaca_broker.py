@@ -1,7 +1,4 @@
-import os
 from decimal import Decimal, ROUND_HALF_UP
-
-from dotenv import load_dotenv
 
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import (
@@ -33,13 +30,7 @@ class AlpacaPaperBroker(Broker):
             raise ValueError("notional must be positive after cent rounding")
         return normalized
 
-    def __init__(self):
-
-        load_dotenv()
-
-        api_key = os.getenv("ALPACA_API_KEY")
-        secret_key = os.getenv("ALPACA_SECRET_KEY")
-
+    def __init__(self, api_key, secret_key):
         if not api_key or not secret_key:
             raise ValueError("Alpaca API credentials are missing")
 
